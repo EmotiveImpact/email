@@ -78,7 +78,9 @@ await email.availability.set({
 });
 ```
 
-Give each business a booking link (`brand.bookingUrl`) and time zone (`timezone`, default Europe/London) with `email.tenants.put`, or in Appearance. Flows then run every hour: a thank-you after a first visit, due back, fill quiet days and we miss you. Owners switch them on under Flows. Free-time buttons open the booking link with `?at=<ISO time>`, so your booking page can preselect that slot.
+Give each business a booking link (`brand.bookingUrl`) and time zone (`timezone`, default Europe/London) with `email.tenants.put`, or in Appearance. Flows then run every hour, and straight away when an owner switches one on under Flows: a thank-you after a first visit, due back, fill quiet days and we miss you. Without free times, their buttons go to the booking page. Free-time buttons open the booking link with `?at=<ISO time>`, so your booking page can preselect that slot.
+
+To bring in past visits, send up to 500 at a time with `email.appointments.upsertMany('linden', bookings)`; rows that fail come back by index and the rest are kept. When a client asks to be forgotten, `email.contacts.erase({ tenant: 'linden', externalId: client.id })` removes them and anonymises their past emails, keeping only the unsubscribe or bounce that stops them being emailed again.
 
 ## Put the studio inside your app
 
@@ -100,6 +102,8 @@ mountStudio(document.getElementById('email')!, url, { onEvent: (e) => e.type ===
 ```
 
 To try it locally, run `SALEANE_API_KEY=<key from db:seed> pnpm demo:host` and open http://localhost:3000, a stand-in for Saleane.
+
+How Saleane and Caleane plug in, with the exact places in their code: [docs/integrations](docs/integrations/README.md).
 
 ## SES setup
 
