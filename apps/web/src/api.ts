@@ -714,3 +714,55 @@ export const useSetOrigins = () =>
   useAppsMutation(({ appId, origins }: { appId: string; origins: string[] }) =>
     request<{ origins: string[] }>(`/app/accounts/current/apps/${appId}/origins`, { method: 'PUT', body: JSON.stringify({ origins }) }),
   );
+
+// ---------------------------------------------------------------- booking system (D132)
+
+export type DiaryConnection = {
+  available: { square: boolean };
+  connection: {
+    provider: 'square';
+    locationName: string | null;
+    consent: 'granted' | 'unknown';
+    status: 'active' | 'error';
+    error: string | null;
+    lastSyncAt: string | null;
+    connectedAt: string;
+  } | null;
+};
+
+const connectionPath = (tenant: string) => `/app/tenants/${encodeURIComponent(tenant)}/diary-connection`;
+
+export const diaryConnectionQuery = (tenant: string) =>
+  queryOptions({
+    queryKey: ['diary-connection', tenant],
+    queryFn: () => request<DiaryConnection>(connectionPath(tenant)),
+    // While the first read is running, look again every few seconds so the page shows when it lands.
+    refetchInterval: (query) => {
+      const c = query.state.data?.connection;
+      return c && c.status === 'active' && !c.lastSyncAt ? 4000 : false;
+    },
+  });
+
+function useConnectionAction<I, O>(tenant: string, fn: (input: I) => Promise<O>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['diary-connection', tenant] });
+      void client.invalidateQueries({ queryKey: ['diary', tenant] });
+    },
+  });
+}
+
+export const connectSquare = async (tenant: string, consent: 'granted' | 'unknown') => {
+  const { url } = await request<{ url: string }>(`${connectionPath(tenant)}/square`, { method: 'POST', body: JSON.stringify({ consent }) });
+  window.location.assign(url);
+};
+export const useFinishSquare = (tenant: string) =>
+  useConnectionAction(tenant, (input: { code: string; state: string }) =>
+    request<DiaryConnection>(`${connectionPath(tenant)}/square/finish`, { method: 'POST', body: JSON.stringify(input) }),
+  );
+export const useSyncDiary = (tenant: string) =>
+  useConnectionAction(tenant, (_: void) => request<DiaryConnection>(`${connectionPath(tenant)}/sync`, { method: 'POST', body: '{}' }));
+export const useDisconnectDiary = (tenant: string) =>
+  useConnectionAction(tenant, (_: void) => request<void>(connectionPath(tenant), { method: 'DELETE' }));

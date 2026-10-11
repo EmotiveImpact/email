@@ -255,6 +255,19 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | Klaviyo Smart Sending | Docs | Checked how a leading tool spaces campaigns after other emails (16 hours by default), which shaped D127 |
 | `axe-core` | MPL-2.0 | Run again from outside the repo after the fixes; tool only, not shipped |
 
+## Stage 14: connecting booking systems
+
+| Project | Licence | Use |
+| --- | --- | --- |
+| `square` (Square's Node SDK) | MIT | Considered; we call seven endpoints, and a 200-line client with a pinned API version keeps the image small and the calls easy to fake in tests |
+| `simple-oauth2` | Apache-2.0 | Considered for the OAuth exchange; Square's token call is one POST |
+| `arctic` | MIT | Considered for OAuth; has no Square provider |
+| `@oslojs/crypto` | MIT | Considered for sealing tokens; Node's built-in AES-GCM does it |
+| Square API docs (OAuth, Bookings, Customers, Catalog, webhooks) | Docs | Followed for scopes, the 31-day booking window, availability search and webhook signatures |
+| Phorest developer docs | Docs | Checked for a second connector; access is per salon on request (D132) |
+| Fresha and Timely | Docs | Checked; no self-serve public API found |
+| Cal.com, Easy!Appointments | AGPL-3.0 / GPL-3.0 | Not used; booking apps rather than connectors (studied for D55) |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -306,3 +319,8 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://npmjs.com/package/focus-trap-react
 - https://help.klaviyo.com/hc/en-us/articles/360004059711
 - https://snyk.io/advisor/npm-package/chrono-node
+- https://developer.squareup.com/docs/oauth-api/overview
+- https://developer.squareup.com/reference/square/bookings-api
+- https://developer.squareup.com/docs/webhooks/step3validate
+- https://developer.phorest.com/
+- https://www.npmjs.com/package/square

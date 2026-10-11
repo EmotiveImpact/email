@@ -9,7 +9,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type MiddlewareHandler } from 'hono';
 
 /** Paths the API answers. Anything else is a page of the web app. */
-const API_PREFIXES = ['/v1', '/app', '/auth', '/ses', '/u/', '/a/', '/billing/', '/health', '/ready'];
+const API_PREFIXES = ['/v1', '/app', '/auth', '/ses', '/u/', '/a/', '/billing/', '/connect/', '/health', '/ready'];
 const isApi = (path: string) => API_PREFIXES.some((p) => path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`));
 
 /** Headers every response gets. HSTS only once the site is served over HTTPS. */

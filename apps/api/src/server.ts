@@ -24,6 +24,8 @@ if (role !== 'web') {
   await queue.work((name, data) => engine.runJob(name, data));
   // Flows check the diary every hour, a few minutes past, for every business with one switched on.
   await queue.schedule('run-flows', '5 * * * *', {});
+  // Connected booking systems are read every 15 minutes; Square's webhooks bring changes sooner.
+  await queue.schedule('sync-diary', '*/15 * * * *', {});
 }
 
 let server: ReturnType<typeof serve> | null = null;

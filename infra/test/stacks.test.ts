@@ -98,7 +98,18 @@ describe('app stack', () => {
       });
       expect(env.AWS_ACCOUNT_ID).toBe('123456789012');
       expect(secrets).toEqual(
-        ['AUTH_SECRET', 'DATABASE_URL', 'DIRECT_DATABASE_URL', 'OPENAI_API_KEY', 'SIGNING_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'].sort(),
+        [
+          'AUTH_SECRET',
+          'DATABASE_URL',
+          'DIRECT_DATABASE_URL',
+          'OPENAI_API_KEY',
+          'SIGNING_SECRET',
+          'SQUARE_APP_ID',
+          'SQUARE_APP_SECRET',
+          'SQUARE_WEBHOOK_SIGNATURE_KEY',
+          'STRIPE_SECRET_KEY',
+          'STRIPE_WEBHOOK_SECRET',
+        ].sort(),
       );
     }
   });

@@ -16,6 +16,7 @@ import {
   segmentsQuery,
   sendingQuery,
   tenantsQuery,
+  diaryConnectionQuery,
 } from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
@@ -31,6 +32,7 @@ import { Images } from './pages/Images.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
 import { Billing } from './pages/Billing.tsx';
+import { BookingSystem } from './pages/BookingSystem.tsx';
 import { Onboarding, type SetupSearch } from './pages/Onboarding.tsx';
 import { ResetPassword, SignIn } from './pages/SignIn.tsx';
 import { FlowOverview, FlowPage, Flows } from './pages/Flows.tsx';
@@ -186,6 +188,12 @@ const billing = createRoute({
   component: Billing,
 });
 const appearance = createRoute({ getParentRoute: () => tenant, path: 'settings/appearance', component: Appearance });
+const bookingSystem = createRoute({
+  getParentRoute: () => tenant,
+  path: 'settings/diary',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(diaryConnectionQuery(params.tenant)),
+  component: BookingSystem,
+});
 
 const routeTree = root.addChildren([
   index,
@@ -193,7 +201,7 @@ const routeTree = root.addChildren([
   resetPassword,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, images, domain, developers, appearance, billing]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, images, domain, bookingSystem, developers, appearance, billing]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

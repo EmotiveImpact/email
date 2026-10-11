@@ -6,12 +6,14 @@ import { MERGE_TAGS } from '@platform/content/merge';
 import { useDialog } from './dialog.ts';
 import { newBlock } from '@platform/content/blocks';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { Braces, CalendarClock, ChevronDown, ChevronUp, Heading, Image, Minus, Monitor, MousePointerClick, MoveVertical, Smartphone, Trash2, Type, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { diaryQuery, previewEmail, type Block, type BlockType, type EmailDoc } from '../api.ts';
 import { Card, Notice, Segmented, cx } from './ui.tsx';
 import { EmailBlocks, ImageBlockSettings } from './image-block.tsx';
 import { useTenant } from './Shell.tsx';
+import { inStudio } from '../studio.ts';
 
 export const control =
   'h-9 w-full rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] text-ink outline-none focus:border-ink';
@@ -332,7 +334,21 @@ function SlotsHint() {
   const tenant = useTenant();
   const { data } = useQuery(diaryQuery(tenant.id));
   if (!data || data.connected) return null;
-  return <Notice>Your diary is not connected yet, so this shows a “Choose a time” button to your booking page instead. Connect your booking system from Developers to show real times.</Notice>;
+  return (
+    <Notice>
+      Your diary is not connected yet, so this shows a “Choose a time” button to your booking page instead.{' '}
+      {inStudio() ? (
+        'Real times show once your booking system sends them.'
+      ) : (
+        <>
+          <Link to="/$tenant/settings/diary" params={{ tenant: tenant.id }} className="font-semibold underline">
+            Connect your booking system
+          </Link>{' '}
+          to show real times.
+        </>
+      )}
+    </Notice>
+  );
 }
 
 /** The email as it will arrive, rendered by the same code that sends it. */

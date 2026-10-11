@@ -282,6 +282,30 @@ export function createApi(options: ApiOptions) {
   /** Stripe's webhooks. The signature is checked against the raw body, so read it as text. */
   api.post('/billing/stripe', async (c) => c.json(await engine.stripeWebhook(await c.req.text(), c.req.header('stripe-signature'))));
 
+  // ------------------------------------------------------------------ booking systems (D132)
+
+  /**
+   * Square sends the owner back here after they grant (or refuse) access. The code is finished from
+   * the web app, where the owner is signed in, so the grant always lands on their own business.
+   */
+  api.get('/connect/square/callback', (c) => {
+    const state = c.req.query('state') ?? '';
+    const tenantId = engine.connectReturnTenant(state);
+    if (!tenantId) return c.html(page('Link expired', '<h1>This link has expired</h1><p>Start connecting Square again from your settings.</p>'), 400);
+    const target = new URL(`${options.webOrigin}/${encodeURIComponent(tenantId)}/settings/diary`);
+    const code = c.req.query('code');
+    if (code) {
+      target.searchParams.set('code', code);
+      target.searchParams.set('state', state);
+    } else {
+      target.searchParams.set('refused', '1');
+    }
+    return c.redirect(target.toString(), 302);
+  });
+
+  /** Square's booking webhooks. The signature covers the raw body, so read it as text. */
+  api.post('/connect/square/webhook', async (c) => c.json(await engine.squareWebhook(await c.req.text(), c.req.header('x-square-hmacsha256-signature'))));
+
   // ------------------------------------------------------------------ sign-in and the web app
 
   // Sign-in, sign-up and password resets, limited per IP address so they cannot be scripted.

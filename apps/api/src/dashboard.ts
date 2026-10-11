@@ -576,5 +576,42 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     return c.json({ url: await engine.billingPortal(tenant.id, `${webOrigin}/${tenant.id}/billing`) });
   });
 
+  // ---------------------------------------------------------------- booking system (D132)
+
+  r.get('/tenants/:id/diary-connection', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.diaryConnection(tenant.id));
+  });
+
+  /** Starts connecting Square: returns where to send the owner to grant read access. */
+  r.post('/tenants/:id/diary-connection/square', async (c) => {
+    const tenant = await tenantOf(c);
+    await ownerOnly(c, 'connect a booking system');
+    const consent = (await json(c)).consent;
+    if (consent !== 'granted' && consent !== 'unknown') throw new PlatformError('invalid_request', 'Say whether your clients agreed to hear news from you.', 422);
+    return c.json(engine.squareConnectUrl(tenant.id, c.var.viewer.id, consent));
+  });
+
+  /** Square sent the owner back here (via /connect/square/callback) with a one-time code. */
+  r.post('/tenants/:id/diary-connection/square/finish', async (c) => {
+    const tenant = await tenantOf(c);
+    await ownerOnly(c, 'connect a booking system');
+    const body = await json(c);
+    return c.json(await engine.finishSquareConnect(tenant.id, c.var.viewer.id, String(body.code ?? ''), String(body.state ?? '')));
+  });
+
+  r.post('/tenants/:id/diary-connection/sync', async (c) => {
+    const tenant = await tenantOf(c);
+    await ownerOnly(c, 'sync the booking system');
+    return c.json(await engine.syncDiaryNow(tenant.id));
+  });
+
+  r.delete('/tenants/:id/diary-connection', async (c) => {
+    const tenant = await tenantOf(c);
+    await ownerOnly(c, 'disconnect the booking system');
+    await engine.disconnectDiary(tenant.id);
+    return c.body(null, 204);
+  });
+
   return r;
 }

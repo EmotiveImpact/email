@@ -27,6 +27,7 @@ import { createAssets } from './assets.ts';
 import { createAudience } from './audience.ts';
 import { createBilling, SamplePaymentProvider, type PaymentProvider } from './billing.ts';
 import { createCampaigns } from './campaigns.ts';
+import { createConnections } from './connections.ts';
 import { createDiary } from './diary.ts';
 import { createDomains, parseFrom } from './domains.ts';
 import { createLimits, LIMITS } from './limits.ts';
@@ -37,6 +38,7 @@ import { createInsights } from './insights.ts';
 import { createOnboarding } from './onboarding.ts';
 import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
+import { SquareClient, type SquareConfig } from './square.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
 import { parseSesEvent, type SesEvent } from './ses-events.ts';
 import { PermanentSendError, PlatformError, type Transport } from './types.ts';
@@ -249,6 +251,8 @@ export function createEngine(deps: {
   imageGenerator?: ImageGenerator;
   /** Takes payment for plans. Default: the sample provider (no money). Null switches payments off. */
   paymentProvider?: PaymentProvider | null;
+  /** Square app keys, to let businesses connect their Square diary. Without them the option is hidden. */
+  square?: SquareConfig | null;
 }) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
@@ -277,6 +281,16 @@ export function createEngine(deps: {
   });
   const onboardingApi = createOnboarding({ db, diary });
   const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows, waitingByKind: flowsApi.waitingByKind });
+  const connectionsApi = createConnections({
+    db,
+    queue,
+    diary,
+    importClients: onboardingApi.importClients,
+    setConsent,
+    square: deps.square ? new SquareClient(deps.square, doFetch) : null,
+    secret: config.signingSecret,
+    webhookUrl: `${config.publicUrl}/connect/square/webhook`,
+  });
   const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots, sendingProblem: billingApi.sendingProblem });
 
   // ---------------------------------------------------------------- accounts, apps and keys
@@ -1016,6 +1030,10 @@ export function createEngine(deps: {
         .where(and(eq(flows.live, true), eq(tenants.status, 'active')));
       await queue.enqueueMany('run-flows', due.map((d) => ({ data: { tenantId: d.tenantId } })));
     }
+    if (name === 'sync-diary') {
+      const { connectionId } = data as Jobs['sync-diary'];
+      return connectionId ? connectionsApi.syncDiary(connectionId) : connectionsApi.syncAllDiaries();
+    }
   }
 
   return {
@@ -1059,6 +1077,7 @@ export function createEngine(deps: {
     ...assetsApi,
     ...billingApi,
     ...onboardingApi,
+    ...connectionsApi,
     runJob,
   };
 }

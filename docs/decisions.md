@@ -644,3 +644,36 @@ A new nail salon, "Fern & Fable Nails", was taken through the running app from s
 ### D131. Found and left for later
 - **Joining again after unsubscribing:** people who unsubscribe by mistake have no "join again" link. Worth adding with a fresh consent record.
 - **Free times without a connected booking system:** a salon using a booking system we do not connect to (or a paper diary) gets due-back and birthday emails with a booking button, but never real free times. This is the biggest gap against "the email platform that knows your diary"; how to close it is Edem's call.
+
+## Stage 14: reading the salon's own booking system
+
+D131 named the biggest gap: a salon whose booking system does not talk to us gets no real free times. This stage connects the first booking system directly, so an owner can link their diary in two clicks without a developer.
+
+### D132. Square Appointments is the first booking system we read
+- **Picked:** Square Appointments, connected with Square's own sign-in (OAuth). The owner chooses Settings, Booking system, Connect Square, signs in at Square and allows access; bookings, clients, services and free times then come in on their own.
+- **Why:** of the systems UK salons use most, Square has a public, documented API that any business can grant access to, with no partner agreement first. It is common with independent salons, barbers and nail studios, the businesses most likely to have no developer.
+- **Considered:** Phorest (big with UK and Irish salons; its API needs credentials issued per salon on request, so it cannot be self-serve yet), Fresha (appears to be partner-only), Timely (no clear public API). Phorest is the best second connector once we can confirm its access with a real salon. Until then, those salons use the spreadsheet import or the API, and the settings page says so.
+
+### D133. Read only, with sealed tokens
+- **Picked:** we ask Square only for read scopes (bookings, booking settings, clients, services and the business profile). Access and refresh tokens are encrypted at rest (AES-256-GCM, a key derived from the signing secret) and never leave the server. Disconnecting withdraws our access at Square, keeps bookings already brought in and clears future free times.
+- **Why:** an owner trusts a tool that cannot change their diary. Nothing we do needs write access, and a leaked database alone should not reveal a way into a salon's Square account.
+
+### D134. The connect link is tied to the business and the person
+- **Picked:** the link sent to Square carries a signed note of the business, the person and their consent answer, valid for 15 minutes. Square sends the owner back to the API, which passes the code to the settings page, which finishes the connection as the signed-in owner. Only owners and admins can connect or disconnect, and never from inside a host app.
+- **Why:** without it, someone could send an owner a link that connects the owner's Square diary to another person's account. Finishing in the web app, where the owner is signed in, closes that.
+
+### D135. Square clients come in with the same consent question as an import
+- **Picked:** before connecting, the owner says whether their Square clients agreed to hear news, exactly as with a spreadsheet. If yes, clients come in agreeing, with the source recorded as confirmed by the owner, except anyone who unsubscribed in Square. If a client later unsubscribes in Square, the yes that came from Square is withdrawn; a yes they gave another way (a sign-up form, say) stays. Names, phone numbers and birthdays fill gaps only.
+- **Why:** without this, every Square client arrives without consent and no flow sends, which looks broken. With it, nobody who said no in Square is ever emailed news by us.
+
+### D136. How the diary is read
+- **Picked:** the first read reaches back six months (so each client's rhythm is known at once) and one month ahead; later reads take the last week and the month ahead, every 15 minutes, and straight away when Square's webhook says a booking changed. Free times for the next two weeks come from Square's own availability search for the most booked service. Square statuses map as: accepted in the past is completed, accepted or pending ahead is booked, no-show is no-show, everything else is cancelled. Services are named after the item ("Cut and blow-dry (Long hair)", not "Regular"), and several services in one booking are joined with "+". Bookings without an email are left out, since email is how we know a client.
+- **Why:** these are the numbers flows already use (rebook rhythm, two weeks of free times). Webhooks make a cancellation show up in minutes; the 15-minute timer means nothing is lost if a webhook is missed.
+- **Considered:** free times per service. One service stands for the diary for now; the table has a `service_id` for an owner's choice later.
+
+### D137. Plain words when a read fails
+- **Picked:** if Square stops letting us in, the page says "Square no longer lets us read this diary. Connect it again from your settings." Other failures say we will try again in 15 minutes, and the detail goes to the logs. Tokens are refreshed a week before they expire.
+- **Why:** the owner can act on the first and needs to do nothing about the second.
+
+### What Edem needs to do
+Create a Square developer application and put its three keys in the production secret (production.md, step 10). Until then, "Connect Square" shows as coming soon.

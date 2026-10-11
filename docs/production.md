@@ -49,7 +49,10 @@ Save this as `secret.json` somewhere outside the repository, fill it in, then se
   "DIRECT_DATABASE_URL": "<direct Neon address>",
   "STRIPE_SECRET_KEY": "",
   "STRIPE_WEBHOOK_SECRET": "",
-  "OPENAI_API_KEY": ""
+  "OPENAI_API_KEY": "",
+  "SQUARE_APP_ID": "",
+  "SQUARE_APP_SECRET": "",
+  "SQUARE_WEBHOOK_SIGNATURE_KEY": ""
 }
 ```
 
@@ -58,7 +61,7 @@ aws secretsmanager put-secret-value --region eu-west-2 --secret-id email-platfor
 rm secret.json
 ```
 
-Empty Stripe keys mean plans cannot be changed yet, and an empty OpenAI key means generated pictures are soft samples in the brand colours. Both can be added later (steps 8 and 9).
+Empty Stripe keys mean plans cannot be changed yet, an empty OpenAI key means generated pictures are soft samples in the brand colours, and empty Square keys mean "Connect Square" shows as coming soon. All can be added later (steps 8 to 10). Keep every key in the file, even when empty: a container will not start if one is missing.
 
 ### 4. GitHub settings
 
@@ -132,7 +135,15 @@ AWS usually answers within a day. Once approved, set `SES_SEND_RATE` to the maxi
 
 Add `OPENAI_API_KEY` to the secret and run Deploy again. Each plan includes a monthly number of generated pictures (D98).
 
-### 10. Before the first real customer
+### 10. Square (when you want salons to connect their Square diary)
+
+1. At [developer.squareup.com](https://developer.squareup.com/apps), create an application (for example "<Product> for salons"). In its OAuth page, choose Production and set the redirect URL to `https://app.<yourdomain>/connect/square/callback`. Copy the Application ID and Application secret.
+2. In Webhooks, Subscriptions, add `https://app.<yourdomain>/connect/square/webhook` with the events `booking.created` and `booking.updated`, on API version 2024-10-17. Copy its signature key.
+3. Put `SQUARE_APP_ID`, `SQUARE_APP_SECRET` and `SQUARE_WEBHOOK_SIGNATURE_KEY` in the secret (as in step 3) and run Deploy again.
+
+Owners then connect from Settings, Booking system. The platform asks only for read access (D132). Without the webhook, diaries are still read every 15 minutes. To try it first, put the sandbox application's keys in the secret instead; the platform sees the `sandbox-` at the start of the id and talks to Square's sandbox.
+
+### 11. Before the first real customer
 
 - Sign up for Google Postmaster Tools for `mail.<yourdomain>` and each business domain that sends a lot. Gmail and Yahoo require SPF, DKIM and DMARC that line up, one-click unsubscribe, and a spam rate under 0.3%; the platform does the first three, and the reputation guard pauses a business before the last one hurts everyone.
 - When DMARC reports look clean for a few weeks, move `_dmarc.mail.<yourdomain>` from `p=none` to `p=quarantine`.

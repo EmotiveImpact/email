@@ -1,7 +1,7 @@
 /** Test helpers: a fresh, migrated Postgres database and an engine with in-memory queue and transport. */
 import { createDb, sql } from '@platform/db';
 import { migrateDb } from '@platform/db/migrate';
-import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type PaymentProvider, type Provisioner, type Transport } from './index.ts';
+import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type PaymentProvider, type Provisioner, type SquareBooking, type SquareConfig, type SquareCustomer, type Transport } from './index.ts';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://platform:platform@localhost:5432/platform_test';
@@ -17,6 +17,7 @@ export async function setup(
     imageGenerator?: ImageGenerator;
     /** Undefined: the sample provider. Null: payments off. */
     paymentProvider?: PaymentProvider | null;
+    square?: SquareConfig | null;
   } = {},
 ) {
   const { db, pool } = createDb(TEST_DATABASE_URL);
@@ -35,6 +36,7 @@ export async function setup(
     resolveHost: async () => ['203.0.113.10'],
     imageGenerator: options.imageGenerator,
     paymentProvider: options.paymentProvider,
+    square: options.square,
     config: { publicUrl: 'https://api.test', signingSecret: 'test-secret', defaultFrom: 'hello@platform.test', ...options.config },
   });
   const { accountId, appId } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });
@@ -44,3 +46,69 @@ export async function setup(
   const drain = () => queue.drain((name, data) => engine.runJob(name, data));
   return { db, pool, engine, transport, queue, app, accountId, appId, tenant, key, drain, close: () => pool.end() };
 }
+
+/**
+ * A stand-in for Square's API with one business: a location, bookings, customers, services and
+ * free times. Pass `fetch` to the engine; `calls` records what was asked, `fail` makes it refuse.
+ */
+export function fakeSquare(data: {
+  bookings: SquareBooking[];
+  customers: SquareCustomer[];
+  services: { id: string; item: string; name?: string; price?: number; minutes?: number }[];
+  free?: string[];
+}) {
+  const calls: { method: string; path: string; body: unknown; authorization: string | null }[] = [];
+  const state = { fail: null as null | number, token: 'tok-1', refreshed: 0, revoked: [] as string[] };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+    if (!url.host.startsWith('connect.squareup')) return json({ ok: true });
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    const authorization = new Headers(init.headers).get('authorization');
+    calls.push({ method: init.method ?? 'GET', path: url.pathname, body, authorization });
+    if (url.pathname === '/oauth2/token') {
+      if (body.grant_type === 'refresh_token') state.refreshed++;
+      state.token = body.grant_type === 'refresh_token' ? `tok-${state.refreshed + 1}` : 'tok-1';
+      return json({ access_token: state.token, refresh_token: 'refresh-1', expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(), merchant_id: 'MERCHANT' });
+    }
+    if (url.pathname === '/oauth2/revoke') {
+      state.revoked.push(body.access_token);
+      return json({ success: true });
+    }
+    if (state.fail) return json({ errors: [{ code: 'UNAUTHORIZED', detail: 'The access token has expired.' }] }, state.fail);
+    if (authorization !== `Bearer ${state.token}`) return json({ errors: [{ code: 'UNAUTHORIZED', detail: 'Wrong token.' }] }, 401);
+    if (url.pathname === '/v2/locations') return json({ locations: [{ id: 'LOC', name: 'Fern & Fable, Leeds', status: 'ACTIVE' }] });
+    if (url.pathname === '/v2/bookings') {
+      const min = new Date(url.searchParams.get('start_at_min')!);
+      const max = new Date(url.searchParams.get('start_at_max')!);
+      return json({ bookings: data.bookings.filter((b) => new Date(b.start_at) >= min && new Date(b.start_at) < max) });
+    }
+    if (url.pathname === '/v2/customers/bulk-retrieve') {
+      const responses = Object.fromEntries((body.customer_ids as string[]).map((id) => [id, { customer: data.customers.find((c) => c.id === id) }]));
+      return json({ responses });
+    }
+    if (url.pathname === '/v2/catalog/batch-retrieve') {
+      const wanted = data.services.filter((s) => (body.object_ids as string[]).includes(s.id));
+      return json({
+        objects: wanted.map((s) => ({
+          id: s.id,
+          type: 'ITEM_VARIATION',
+          item_variation_data: {
+            item_id: `item-${s.id}`,
+            name: s.name ?? 'Regular',
+            ...(s.price !== undefined && { price_money: { amount: s.price, currency: 'GBP' } }),
+            ...(s.minutes && { service_duration: s.minutes * 60_000 }),
+          },
+        })),
+        related_objects: wanted.map((s) => ({ id: `item-${s.id}`, type: 'ITEM', item_data: { name: s.item } })),
+      });
+    }
+    if (url.pathname === '/v2/bookings/availability/search') {
+      return json({ availabilities: (data.free ?? []).map((start_at) => ({ start_at, location_id: 'LOC', appointment_segments: [{ duration_minutes: 45, team_member_id: 'TM1' }] })) });
+    }
+    return json({ errors: [{ code: 'NOT_FOUND' }] }, 404);
+  }) as typeof globalThis.fetch;
+  return { fetch, calls, state, data };
+}
+
+export const SQUARE_TEST_CONFIG: SquareConfig = { appId: 'sq0idp-test', appSecret: 'sq0csp-secret', webhookSignatureKey: 'hook-key', environment: 'production' };

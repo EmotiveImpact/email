@@ -43,6 +43,17 @@ export async function boot(env: NodeJS.ProcessEnv = process.env) {
         : env.NODE_ENV === 'production'
           ? null
           : new SamplePaymentProvider(),
+    // Booking systems: businesses can connect Square once the platform's Square app keys are set (D132).
+    square:
+      env.SQUARE_APP_ID && env.SQUARE_APP_SECRET
+        ? {
+            appId: env.SQUARE_APP_ID,
+            appSecret: env.SQUARE_APP_SECRET,
+            webhookSignatureKey: env.SQUARE_WEBHOOK_SIGNATURE_KEY || undefined,
+            // Square's sandbox application ids start with "sandbox-", so its keys alone pick the sandbox.
+            environment: env.SQUARE_ENVIRONMENT === 'sandbox' || env.SQUARE_APP_ID.startsWith('sandbox-') ? 'sandbox' : 'production',
+          }
+        : null,
     imageGenerator: env.OPENAI_API_KEY ? new OpenAIImageGenerator(env.OPENAI_API_KEY, env.IMAGE_MODEL || undefined) : undefined,
     config: {
       publicUrl: env.PUBLIC_URL ?? `http://localhost:${port}`,
