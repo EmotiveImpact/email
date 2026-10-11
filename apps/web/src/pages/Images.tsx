@@ -67,7 +67,7 @@ export function Images() {
           ]}
         />
         <span className="text-xs text-muted">
-          {data.images.left} of {data.images.perDay} generations left today
+          {data.images.left} of {data.images.limit} generations left {data.images.per === 'day' ? 'today' : 'this month'}
         </span>
       </div>
 

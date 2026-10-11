@@ -50,6 +50,8 @@ export type AssetDeps = {
   generator: ImageGenerator;
   /** Generated pictures a business may make each day. They cost money; this caps a runaway loop. */
   imagesPerDay: number;
+  /** The plan's monthly allowance for businesses that pay us (D98). Null when an app pays. */
+  picturesLeft?: (tenantId: string, now: Date) => Promise<{ limit: number; left: number; resets: Date } | null>;
 };
 
 function parse<T extends z.ZodType>(schema: T, raw: unknown): z.output<T> {
@@ -61,7 +63,7 @@ function parse<T extends z.ZodType>(schema: T, raw: unknown): z.output<T> {
 
 const startOfDay = (now: Date) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-export function createAssets({ db, store, generator, imagesPerDay }: AssetDeps) {
+export function createAssets({ db, store, generator, imagesPerDay, picturesLeft }: AssetDeps) {
   function view(row: Asset) {
     return {
       id: row.id,
@@ -145,13 +147,21 @@ export function createAssets({ db, store, generator, imagesPerDay }: AssetDeps) 
     return row?.n ?? 0;
   }
 
+  /** Whichever is tighter: the plan's month, or the daily cap. */
+  async function allowance(tenantId: string, now: Date) {
+    const [today, month] = await Promise.all([generatedToday(tenantId, now), picturesLeft?.(tenantId, now) ?? null]);
+    const day = { per: 'day' as const, limit: imagesPerDay, left: Math.max(0, imagesPerDay - today) };
+    return month && month.left <= day.left ? { per: 'month' as const, limit: month.limit, left: month.left, resets: month.resets } : day;
+  }
+
   async function imageSettings(tenantId: string, now = new Date()) {
-    const used = await generatedToday(tenantId, now);
+    const { per, limit, left } = await allowance(tenantId, now);
     return {
       provider: generator.name,
       real: generator.real,
-      perDay: imagesPerDay,
-      left: Math.max(0, imagesPerDay - used),
+      per,
+      limit,
+      left,
       styles: Object.entries(IMAGE_STYLES).map(([id, s]) => ({ id, label: s.label })),
     };
   }
@@ -160,11 +170,18 @@ export function createAssets({ db, store, generator, imagesPerDay }: AssetDeps) 
   async function generateImages(tenantId: string, raw: unknown, createdBy?: string, now = new Date()): Promise<AssetView[]> {
     const input = parse(GenerateImagesInput, raw);
     const tenant = await tenantById(tenantId);
-    const left = imagesPerDay - (await generatedToday(tenantId, now));
-    if (left < input.count) {
+    const limit = await allowance(tenantId, now);
+    if (limit.left < input.count) {
+      const when = limit.per === 'day' ? 'today' : 'this month';
+      const more =
+        limit.per === 'day'
+          ? 'More tomorrow.'
+          : `More on ${limit.resets.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' })}, or choose a bigger plan.`;
       throw new PlatformError(
         'limit_reached',
-        left > 0 ? `You can make ${left} more ${left === 1 ? 'picture' : 'pictures'} today.` : 'That is all the pictures for today. More tomorrow.',
+        limit.left > 0
+          ? `You can make ${limit.left} more ${limit.left === 1 ? 'picture' : 'pictures'} ${when}.`
+          : `That is all the pictures for ${when}. ${more}`,
         429,
       );
     }

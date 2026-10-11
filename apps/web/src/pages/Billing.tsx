@@ -67,6 +67,9 @@ export function Billing() {
                   <Check size={14} className="mt-0.5 shrink-0 text-accent-ink" /> {nf.format(plan.emails)} emails a month
                 </li>
                 <li className="flex gap-2">
+                  <Check size={14} className="mt-0.5 shrink-0 text-accent-ink" /> {nf.format(plan.pictures)} generated pictures
+                </li>
+                <li className="flex gap-2">
                   <Check size={14} className="mt-0.5 shrink-0 text-accent-ink" /> Every flow and feature
                 </li>
               </ul>
@@ -93,9 +96,10 @@ function Usage({ data, plan }: { data: BillingData; plan: Plan | null }) {
   return (
     <Card className="flex flex-col gap-4 px-5 py-5">
       <CardTitle aside={<span className="text-xs text-muted">Since {day(data.periodStart)} · resets {day(data.periodEnd)}</span>}>This month</CardTitle>
-      <div className="grid gap-5 @[720px]:grid-cols-2">
+      <div className="grid gap-5 @[720px]:grid-cols-3">
         <Meter label="People who said yes to news" used={data.usage.contacts} limit={plan?.contacts ?? null} />
         <Meter label="News and flow emails sent" used={data.usage.emails} limit={plan?.emails ?? null} />
+        <Meter label="Pictures generated" used={data.usage.pictures} limit={plan?.pictures ?? null} />
       </div>
     </Card>
   );

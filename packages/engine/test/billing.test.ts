@@ -164,3 +164,31 @@ describe('Stripe', () => {
     expect(await engine.choosePlan(tenant.id, 'studio', { returnUrl: 'https://app.test/billing' })).toEqual({ url: 'https://billing.stripe.test/p/1' });
   });
 });
+
+describe('generated pictures', () => {
+  it('counts them against the plan each month, since each one costs money', async () => {
+    const ctx = await direct(3);
+    const free = PLANS.find((p) => p.id === 'free')!;
+    // Pictures made earlier this month, straight into the library.
+    await ctx.db.execute(sql`
+      insert into assets (id, tenant_id, kind, name, key, content_type, bytes, width, height)
+      select 'ast_old' || g, ${ctx.tenant.id}, 'generated', 'Earlier', 'old' || g, 'image/png', 10, 1, 1 from generate_series(1, ${free.pictures - 1}::int) g`);
+
+    expect(await ctx.engine.imageSettings(ctx.tenant.id)).toMatchObject({ per: 'month', limit: free.pictures, left: 1 });
+    await expect(ctx.engine.generateImages(ctx.tenant.id, { prompt: 'Dried flowers', count: 2 })).rejects.toThrow('1 more picture this month');
+    await ctx.engine.generateImages(ctx.tenant.id, { prompt: 'Dried flowers', count: 1 });
+    await expect(ctx.engine.generateImages(ctx.tenant.id, { prompt: 'Dried flowers', count: 1 })).rejects.toThrow(/all the pictures for this month\. More on \d+ \w+, or choose a bigger plan/);
+    expect((await ctx.engine.billingSummary(ctx.tenant.id)).usage.pictures).toBe(free.pictures);
+
+    // A bigger plan lifts the limit straight away.
+    await ctx.engine.choosePlan(ctx.tenant.id, 'starter', { returnUrl: 'https://app.test/billing' });
+    expect(await ctx.engine.imageSettings(ctx.tenant.id)).toMatchObject({ per: 'month', left: 30 });
+  });
+
+  it('leaves only the daily cap for a business whose app pays', async () => {
+    const ctx = await setup();
+    close = ctx.close;
+    expect(await ctx.engine.imageSettings(ctx.tenant.id)).toMatchObject({ per: 'day', limit: 40, left: 40 });
+  });
+});
+

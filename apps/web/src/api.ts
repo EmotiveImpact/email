@@ -139,7 +139,7 @@ export const importRows = (tenant: string, kind: 'clients' | 'visits', body: { c
   request<ImportResult>(`/app/tenants/${encodeURIComponent(tenant)}/import/${kind}`, { method: 'POST', body: JSON.stringify(body) });
 
 export type PlanId = 'free' | 'starter' | 'growth' | 'studio' | 'scale';
-export type Plan = { id: PlanId; name: string; price: number; contacts: number; emails: number; pitch: string };
+export type Plan = { id: PlanId; name: string; price: number; contacts: number; emails: number; pictures: number; pitch: string };
 export type Billing = {
   billed: 'business' | 'app';
   payments: 'live' | 'sample' | 'off';
@@ -148,7 +148,7 @@ export type Billing = {
   periodStart: string;
   periodEnd: string;
   cancelAtPeriodEnd: boolean;
-  usage: { contacts: number; emails: number };
+  usage: { contacts: number; emails: number; pictures: number };
   plans: Plan[];
 };
 
@@ -644,7 +644,7 @@ export type Asset = {
   createdAt: string;
   updatedAt: string;
 };
-export type ImageSettings = { provider: string; real: boolean; perDay: number; left: number; styles: { id: string; label: string }[] };
+export type ImageSettings = { provider: string; real: boolean; per: 'day' | 'month'; limit: number; left: number; styles: { id: string; label: string }[] };
 export type Library = { assets: Asset[]; images: ImageSettings };
 export type ImageShape = 'wide' | 'square' | 'tall';
 export type GenerateInput = { prompt: string; style: string; shape: ImageShape; count: number };

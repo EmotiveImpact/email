@@ -174,7 +174,7 @@ function GenerateTab({ suggested, chosen, onChoose }: { suggested: string; chose
           className="w-full resize-none border-0 bg-transparent font-[inherit] text-[14px] leading-relaxed text-ink outline-none placeholder:text-faint"
         />
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted">{images ? `${images.left} of ${images.perDay} left today` : ' '}</span>
+          <span className="text-xs text-muted">{images ? `${images.left} of ${images.limit} left ${images.per === 'day' ? 'today' : 'this month'}` : ' '}</span>
           <Button onClick={run} disabled={generate.isPending || prompt.trim().length < 3 || count < 1}>
             {generate.isPending ? 'Making…' : `Make ${count}`}
           </Button>
