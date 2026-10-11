@@ -138,6 +138,8 @@ export type Brand = {
   rail?: 'light' | 'pigment';
   headingFont?: 'cal-sans' | 'geist' | 'serif';
   logoUrl?: string;
+  /** Postal address for the footer of marketing email. */
+  address?: string;
 };
 
 export const tenants = pgTable(
@@ -259,6 +261,8 @@ export const messages = pgTable(
     tags: jsonb('tags').$type<Record<string, string>>().notNull().default({}),
     status: text('status', { enum: MESSAGE_STATUSES }).notNull().default('queued'),
     providerMessageId: text('provider_message_id'),
+    /** Set when the email was one recipient's copy of a campaign. */
+    campaignId: text('campaign_id'),
     error: text('error'),
     attempts: integer('attempts').notNull().default(0),
     createdAt: created(),
@@ -270,6 +274,8 @@ export const messages = pgTable(
       .on(t.tenantId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),
     uniqueIndex('messages_provider_id').on(t.providerMessageId),
+    // One copy per person per campaign, even if the expansion job runs twice.
+    uniqueIndex('messages_campaign_recipient').on(t.campaignId, t.to).where(sql`${t.campaignId} is not null`),
     index('messages_tenant_created').on(t.tenantId, t.createdAt),
   ],
 );
@@ -348,4 +354,33 @@ export const segments = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('segments_tenant').on(t.tenantId)],
+);
+
+export const CAMPAIGN_STATUSES = ['draft', 'scheduled', 'sending', 'sent', 'cancelled'] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/** A one-off email to a segment (or everyone who said yes to news). */
+export const campaigns = pgTable(
+  'campaigns',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    subject: text('subject').notNull().default(''),
+    /** The editor document (`EmailDoc` in @platform/content). */
+    content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+    /** Null means everyone who said yes to news. */
+    segmentId: text('segment_id').references(() => segments.id, { onDelete: 'set null' }),
+    status: text('status', { enum: CAMPAIGN_STATUSES }).notNull().default('draft'),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    /** Counted when the campaign goes out: who got it and who was left out, and why. */
+    recipients: integer('recipients'),
+    skippedNoConsent: integer('skipped_no_consent'),
+    skippedSuppressed: integer('skipped_suppressed'),
+    createdBy: text('created_by'),
+    createdAt: created(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('campaigns_tenant').on(t.tenantId, t.createdAt)],
 );

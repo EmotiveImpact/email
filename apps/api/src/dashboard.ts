@@ -204,5 +204,71 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     return c.body(null, 204);
   });
 
+  // ---------------------------------------------------------------- campaigns
+
+  const campaignInput = (body: Record<string, unknown>) => ({
+    ...(typeof body.name === 'string' && { name: body.name }),
+    ...(typeof body.subject === 'string' && { subject: body.subject }),
+    ...(body.segmentId !== undefined && { segmentId: typeof body.segmentId === 'string' && body.segmentId ? body.segmentId : null }),
+    ...(body.content !== undefined && { content: body.content }),
+  });
+
+  r.get('/tenants/:id/campaigns', async (c) => c.json(await engine.listCampaigns((await tenantOf(c)).id)));
+
+  r.post('/tenants/:id/campaigns', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.createCampaign(tenant.id, campaignInput(await json(c)), c.var.session.user.id), 201);
+  });
+
+  r.get('/tenants/:id/campaigns/:campaignId', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.campaignDetail(tenant.id, c.req.param('campaignId')));
+  });
+
+  r.put('/tenants/:id/campaigns/:campaignId', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.updateCampaign(tenant.id, c.req.param('campaignId'), campaignInput(await json(c)));
+    return c.json(await engine.campaignDetail(tenant.id, c.req.param('campaignId')));
+  });
+
+  r.delete('/tenants/:id/campaigns/:campaignId', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.deleteCampaign(tenant.id, c.req.param('campaignId'));
+    return c.body(null, 204);
+  });
+
+  /** The email as HTML, for the editor's live preview. Takes unsaved content. */
+  r.post('/tenants/:id/campaigns/preview', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json({ html: await engine.previewCampaign(tenant.id, (await json(c)).content) });
+  });
+
+  r.get('/tenants/:id/audience', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.audienceFor(tenant.id, c.req.query('segment') || null));
+  });
+
+  r.post('/tenants/:id/campaigns/:campaignId/schedule', async (c) => {
+    const tenant = await tenantOf(c);
+    const body = await json(c);
+    const at = typeof body.at === 'string' ? new Date(body.at) : undefined;
+    if (at && Number.isNaN(at.getTime())) throw new PlatformError('invalid_request', 'That send time is not a date.', 422);
+    await engine.scheduleCampaign(tenant.id, c.req.param('campaignId'), at);
+    return c.json(await engine.campaignDetail(tenant.id, c.req.param('campaignId')));
+  });
+
+  r.post('/tenants/:id/campaigns/:campaignId/unschedule', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.unscheduleCampaign(tenant.id, c.req.param('campaignId'));
+    return c.json(await engine.campaignDetail(tenant.id, c.req.param('campaignId')));
+  });
+
+  r.post('/tenants/:id/campaigns/:campaignId/test', async (c) => {
+    const tenant = await tenantOf(c);
+    const to = String((await json(c)).to ?? c.var.session.user.email);
+    const message = await engine.sendTest(tenant.id, c.req.param('campaignId'), to);
+    return c.json({ to: message.to }, 202);
+  });
+
   return r;
 }

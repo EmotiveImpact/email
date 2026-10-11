@@ -3,20 +3,32 @@ import { PgBoss } from 'pg-boss';
 export type Jobs = {
   'send-message': { messageId: string };
   'deliver-webhook': { deliveryId: string };
+  'send-campaign': { campaignId: string };
 };
 export type JobName = keyof Jobs;
-export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook'];
+export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign'];
+
+export type EnqueueOptions = {
+  /** Do not run before this time. Used to pace campaign sends and to schedule campaigns. */
+  startAfter?: Date;
+};
 
 export interface Queue {
-  enqueue<N extends JobName>(name: N, data: Jobs[N]): Promise<void>;
+  enqueue<N extends JobName>(name: N, data: Jobs[N], options?: EnqueueOptions): Promise<void>;
+  /** Many jobs of one kind in one round trip. */
+  enqueueMany<N extends JobName>(name: N, jobs: { data: Jobs[N]; startAfter?: Date }[]): Promise<void>;
 }
 
 /** Collects jobs so tests (and scripts) can run them by hand with `drain`. */
 export class MemoryQueue implements Queue {
-  readonly jobs: { name: JobName; data: Jobs[JobName] }[] = [];
+  readonly jobs: { name: JobName; data: Jobs[JobName]; startAfter?: Date }[] = [];
 
-  async enqueue<N extends JobName>(name: N, data: Jobs[N]) {
-    this.jobs.push({ name, data });
+  async enqueue<N extends JobName>(name: N, data: Jobs[N], options: EnqueueOptions = {}) {
+    this.jobs.push({ name, data, startAfter: options.startAfter });
+  }
+
+  async enqueueMany<N extends JobName>(name: N, jobs: { data: Jobs[N]; startAfter?: Date }[]) {
+    for (const job of jobs) this.jobs.push({ name, data: job.data, startAfter: job.startAfter });
   }
 
   /** Runs queued jobs (including ones queued while running) until none are left. */
@@ -45,8 +57,12 @@ export class PgBossQueue implements Queue {
     return new PgBossQueue(boss);
   }
 
-  async enqueue<N extends JobName>(name: N, data: Jobs[N]) {
-    await this.boss.send(name, data);
+  async enqueue<N extends JobName>(name: N, data: Jobs[N], options: EnqueueOptions = {}) {
+    await this.boss.send(name, data, options.startAfter ? { startAfter: options.startAfter } : undefined);
+  }
+
+  async enqueueMany<N extends JobName>(name: N, jobs: { data: Jobs[N]; startAfter?: Date }[]) {
+    for (let i = 0; i < jobs.length; i += 1000) await this.boss.insert(name, jobs.slice(i, i + 1000));
   }
 
   async work(run: (name: JobName, data: Jobs[JobName]) => Promise<void>, concurrency = 5) {
