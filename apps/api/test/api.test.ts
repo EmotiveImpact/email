@@ -155,9 +155,19 @@ describe('/app (local dashboard)', () => {
     await call('POST', '/v1/emails', { tenant: 'linden', to: 'a@example.com', subject: 'Hi', text: 'x' });
     await drain();
     expect(await (await api.request('/app/tenants')).json()).toMatchObject([{ id: 'linden', name: 'Linden Studio' }]);
-    const activity = (await (await api.request('/app/tenants/linden/activity')).json()) as { stats: Record<string, number>; messages: unknown[] };
+    const activity = (await (await api.request('/app/tenants/linden/activity')).json()) as {
+      stats: Record<string, number>;
+      daily: { day: string; total: number }[];
+      messages: unknown[];
+    };
     expect(activity.stats.sent).toBe(1);
+    expect(activity.daily).toHaveLength(31);
+    expect(activity.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), total: 1 });
     expect(activity.messages).toHaveLength(1);
+    await call('POST', '/v1/emails', { tenant: 'linden', stream: 'marketing', to: 'nobody@example.com', subject: 'News', html: '<p>x</p>' });
+    const held = (await (await api.request('/app/tenants/linden/messages?show=held')).json()) as { to: string; reason: string }[];
+    expect(held).toEqual([expect.objectContaining({ to: 'nobody@example.com', reason: 'no_marketing_consent' })]);
+    expect((await api.request('/app/tenants/linden/messages?show=nope')).status).toBe(422);
     const saved = await api.request('/app/tenants/linden/brand', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accent: '#4B4FD8', rail: 'light' }) });
     expect(await saved.json()).toMatchObject({ brand: { accent: '#4B4FD8', rail: 'light' }, fromEmail: 'news@linden.test' });
   });

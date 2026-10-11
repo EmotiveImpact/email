@@ -591,8 +591,11 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
 
   // ---------------------------------------------------------------- reads for the app
 
-  async function listMessages(tenantId: string, limit = 50) {
-    return db.select().from(messages).where(eq(messages.tenantId, tenantId)).orderBy(desc(messages.createdAt)).limit(limit);
+  async function listMessages(tenantId: string, options: { limit?: number; statuses?: readonly MessageStatus[] } = {}) {
+    const where = options.statuses?.length
+      ? and(eq(messages.tenantId, tenantId), inArray(messages.status, [...options.statuses]))
+      : eq(messages.tenantId, tenantId);
+    return db.select().from(messages).where(where).orderBy(desc(messages.createdAt)).limit(options.limit ?? 50);
   }
 
   async function messageStats(tenantId: string, since: Date) {
@@ -602,6 +605,27 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
       .where(and(eq(messages.tenantId, tenantId), sql`${messages.createdAt} >= ${since}`))
       .groupBy(messages.status);
     return Object.fromEntries(rows.map((r) => [r.status, r.count])) as Partial<Record<MessageStatus, number>>;
+  }
+
+  /** Emails created per day since `since`, with how many reached the inbox, oldest first, one row per day. */
+  async function dailyCounts(tenantId: string, since: Date) {
+    const rows = await db
+      .select({
+        day: sql<string>`to_char(date_trunc('day', ${messages.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
+        total: sql<number>`count(*)::int`,
+        delivered: sql<number>`(count(*) filter (where ${messages.status} = 'delivered'))::int`,
+      })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), sql`${messages.createdAt} >= ${since}`))
+      .groupBy(sql`1`);
+    const byDay = new Map(rows.map((r) => [r.day, r]));
+    const days: { day: string; total: number; delivered: number }[] = [];
+    const start = new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate()));
+    for (let d = start; d.getTime() <= Date.now(); d = new Date(d.getTime() + 86_400_000)) {
+      const day = d.toISOString().slice(0, 10);
+      days.push({ day, total: byDay.get(day)?.total ?? 0, delivered: byDay.get(day)?.delivered ?? 0 });
+    }
+    return days;
   }
 
   /** Runs one queued job. Wire this to the queue's worker. */
@@ -627,6 +651,7 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
     processWebhook,
     listMessages,
     messageStats,
+    dailyCounts,
     runJob,
   };
 }

@@ -182,8 +182,20 @@ export function createApi(options: ApiOptions) {
   appRoutes.get('/tenants/:externalId/activity', async (c) => {
     const tenant = await engine.getTenant(options.devDashboardAppId!, c.req.param('externalId'));
     const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-    const [recent, stats] = await Promise.all([engine.listMessages(tenant.id, 25), engine.messageStats(tenant.id, since)]);
-    return c.json({ stats, messages: recent.map(publicMessage) });
+    const [recent, stats, daily] = await Promise.all([
+      engine.listMessages(tenant.id, { limit: 10 }),
+      engine.messageStats(tenant.id, since),
+      engine.dailyCounts(tenant.id, since),
+    ]);
+    return c.json({ stats, daily, messages: recent.map(publicMessage) });
+  });
+
+  appRoutes.get('/tenants/:externalId/messages', async (c) => {
+    const tenant = await engine.getTenant(options.devDashboardAppId!, c.req.param('externalId'));
+    const show = c.req.query('show') ?? 'all';
+    if (show !== 'all' && !(show in SHOW)) throw new PlatformError('invalid_request', `show must be one of all, ${Object.keys(SHOW).join(', ')}.`, 422);
+    const rows = await engine.listMessages(tenant.id, { limit: 100, statuses: SHOW[show as keyof typeof SHOW] });
+    return c.json(rows.map(publicMessage));
   });
 
   appRoutes.put('/tenants/:externalId/brand', async (c) => {
@@ -202,6 +214,13 @@ export function createApi(options: ApiOptions) {
   api.route('/app', appRoutes);
   return api;
 }
+
+/** How the Sending page groups statuses. */
+const SHOW = {
+  arrived: ['queued', 'sending', 'sent', 'delivered', 'delivery_delayed'],
+  held: ['suppressed'],
+  problems: ['bounced', 'complained', 'rejected', 'failed'],
+} as const satisfies Record<string, readonly (typeof messages.$inferSelect)['status'][]>;
 
 function publicTenant(t: typeof tenants.$inferSelect) {
   return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, brand: t.brand };

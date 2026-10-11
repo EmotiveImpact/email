@@ -100,6 +100,22 @@ Useful Dittofeed paths (MIT, copy with notice): `packages/backend-lib/src/segmen
 | `lucide-react` 1.55.0 | ISC | 10 Oct 2026 | Build on | Peer React ^19, shadcn default icon set, tree-shakeable |
 | Runner-up icons | n/a | n/a | not verified | None checked within the cap |
 
+## Used in stage 1 (app shell)
+
+Checked 11 October 2026 with `npm view <pkg> version license`.
+
+| Project | Licence | Used for |
+|---|---|---|
+| `@fontsource/cal-sans` 5.3.0 | OFL-1.1 | Default heading font, self-hosted |
+| `@fontsource-variable/inter` 5.3.0 | OFL-1.1 | Body text |
+| `@fontsource-variable/geist` 5.3.0, `@fontsource-variable/newsreader` 5.3.0 | OFL-1.1 | The two other heading choices |
+| `@tanstack/react-router` 1.170.42, `@tanstack/react-query` 5.104.1 | MIT | Routing and data loading |
+| `tailwindcss` / `@tailwindcss/vite` 4.3.3 | MIT | Styling over the brand CSS variables |
+| `lucide-react` 1.55.0 | ISC | Icons |
+| `@vitejs/plugin-react` 6.1.2, `vite` 8.3.4 | MIT | Build |
+
+Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D20), shadcn/Base UI (added with the first dialogs and menus in stage 2), TanStack Table (added when Audience needs sorting and paging).
+
 ## Watch-outs
 
 - Email builder is the weakest area. Easy Email still peers React ^18.2 and EmailBuilder.js peers up to React 18 with one release in two years; both would need forking for React 19. Maily is the only React 19 option, but v2 is beta (last beta June 2026), so pin the exact version and budget for fixes.

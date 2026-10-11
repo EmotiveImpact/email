@@ -1,0 +1,277 @@
+import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import {
+  ArrowRight,
+  ArrowUp,
+  ChevronDown,
+  CodeXml,
+  House,
+  Megaphone,
+  Palette,
+  Send,
+  Sparkles,
+  SquarePen,
+  Users,
+  Workflow,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { tenantsQuery, type Tenant } from '../api.ts';
+import { brandVars, type Brand } from '../theme.ts';
+import { cx } from './ui.tsx';
+
+type Area = { to: string; label: string; icon: LucideIcon; exact?: boolean };
+
+const RAIL: Area[][] = [
+  [
+    { to: '/$tenant', label: 'Home', icon: House, exact: true },
+    { to: '/$tenant/campaigns', label: 'Campaigns', icon: Megaphone },
+    { to: '/$tenant/flows', label: 'Flows', icon: Workflow },
+  ],
+  [
+    { to: '/$tenant/audience', label: 'Audience', icon: Users },
+    { to: '/$tenant/sending', label: 'Sending', icon: Send },
+  ],
+];
+
+const BOTTOM: Area[] = [
+  { to: '/$tenant/developers', label: 'Developers', icon: CodeXml },
+  { to: '/$tenant/settings/appearance', label: 'Appearance', icon: Palette },
+];
+
+/** Lets a page (Appearance) show a brand across the whole app before it is saved. */
+const PreviewContext = createContext<{ setPreview: (brand: Brand | null) => void }>({ setPreview: () => {} });
+export const useBrandPreview = () => useContext(PreviewContext);
+
+const TenantContext = createContext<Tenant | null>(null);
+export function useTenant() {
+  const tenant = useContext(TenantContext);
+  if (!tenant) throw new Error('useTenant outside the shell');
+  return tenant;
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+
+export function Shell() {
+  const { tenant: tenantId } = useParams({ from: '/$tenant' });
+  const { data: tenants } = useSuspenseQuery(tenantsQuery);
+  const tenant = tenants.find((t) => t.id === tenantId);
+  const [preview, setPreview] = useState<Brand | null>(null);
+  const [assistant, setAssistant] = useState(() => readFlag('assistant', true));
+  const style = useMemo(() => brandVars(preview ?? tenant?.brand) as CSSProperties, [preview, tenant?.brand]);
+
+  useEffect(() => writeFlag('assistant', assistant), [assistant]);
+  useEffect(() => setPreview(null), [tenantId]);
+
+  if (!tenant) return <NotFound tenants={tenants} />;
+
+  return (
+    <TenantContext.Provider value={tenant}>
+      <PreviewContext.Provider value={{ setPreview }}>
+        <div style={style} className="flex h-full min-h-[600px] bg-canvas">
+          <Rail tenant={tenant} assistant={assistant} onAssistant={() => setAssistant((a) => !a)} />
+          <main className="m-3 ml-0 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-rule bg-paper shadow-[0_1px_2px_#0000000A]">
+            <TopBar tenant={tenant} tenants={tenants} />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-[30px] py-[26px]">
+                <Outlet />
+              </div>
+            </div>
+          </main>
+          {assistant && <Assistant tenant={tenant} onClose={() => setAssistant(false)} />}
+        </div>
+      </PreviewContext.Provider>
+    </TenantContext.Provider>
+  );
+}
+
+function RailLink({ area, tenant }: { area: Area; tenant: string }) {
+  const Icon = area.icon;
+  return (
+    <Link
+      to={area.to}
+      params={{ tenant }}
+      activeOptions={{ exact: area.exact }}
+      aria-label={area.label}
+      title={area.label}
+      className="flex h-10 w-[42px] items-center justify-center rounded-[11px] text-(--rail-icon) transition hover:bg-(--rail-active-bg) data-[status=active]:bg-(--rail-active-bg) data-[status=active]:text-(--rail-active-ink) data-[status=active]:shadow-(--rail-active-shadow)"
+    >
+      <Icon size={20} strokeWidth={1.6} />
+    </Link>
+  );
+}
+
+function Rail({ tenant, assistant, onAssistant }: { tenant: Tenant; assistant: boolean; onAssistant: () => void }) {
+  return (
+    <nav aria-label="Main" className="rail relative isolate flex w-16 shrink-0 flex-col items-center gap-1.5 py-[18px]" style={{ background: 'var(--rail-bg)' }}>
+      <Link
+        to="/$tenant"
+        params={{ tenant: tenant.id }}
+        aria-label="Home"
+        className="display mb-[18px] flex size-8 items-center justify-center rounded-[10px] bg-(--logo-bg) text-[17px] text-(--logo-ink)"
+      >
+        {tenant.brand.logoUrl ? <img src={tenant.brand.logoUrl} alt="" className="size-8 rounded-[10px] object-cover" /> : 'N'}
+      </Link>
+      {RAIL.map((group, i) => (
+        <div key={i} className={cx('flex flex-col items-center gap-1.5', i > 0 && 'mt-[18px]')}>
+          {group.map((area) => (
+            <RailLink key={area.to} area={area} tenant={tenant.id} />
+          ))}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAssistant}
+        aria-label="Assistant"
+        aria-pressed={assistant}
+        title="Assistant"
+        className={cx(
+          'mt-[18px] flex h-10 w-[42px] cursor-pointer items-center justify-center rounded-[11px] border-0 transition',
+          assistant ? 'bg-(--rail-active-bg) text-(--rail-active-ink) shadow-(--rail-active-shadow)' : 'bg-transparent text-(--rail-icon) hover:bg-(--rail-active-bg)',
+        )}
+      >
+        <Sparkles size={20} strokeWidth={1.6} />
+      </button>
+      <div className="mt-auto flex flex-col items-center gap-1.5">
+        {BOTTOM.map((area) => (
+          <RailLink key={area.to} area={area} tenant={tenant.id} />
+        ))}
+        <span
+          title={tenant.name}
+          className="mt-3 flex size-8 items-center justify-center rounded-full bg-(--avatar-bg) text-[11px] font-semibold text-(--avatar-ink)"
+        >
+          {initials(tenant.name)}
+        </span>
+      </div>
+    </nav>
+  );
+}
+
+function TopBar({ tenant, tenants }: { tenant: Tenant; tenants: Tenant[] }) {
+  const navigate = useNavigate();
+  return (
+    <header className="flex h-[58px] shrink-0 items-center gap-3.5 border-b border-rule pr-[18px] pl-[26px]">
+      <label className="relative flex items-center gap-2 text-sm font-semibold">
+        <span className="sr-only">Business</span>
+        <select
+          value={tenant.id}
+          onChange={(e) => navigate({ to: '/$tenant', params: { tenant: e.target.value } })}
+          className="cursor-pointer appearance-none border-0 bg-transparent py-1 pr-6 font-[inherit] text-[inherit] outline-offset-4"
+        >
+          {tenants.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        <ChevronDown size={15} className="pointer-events-none absolute right-0 text-faint" />
+      </label>
+      {tenant.status === 'paused' ? (
+        <span className="rounded-full bg-bad-bg px-2.5 py-[3px] text-xs font-medium text-bad">Sending paused</span>
+      ) : (
+        <span className="rounded-full bg-soft px-2.5 py-[3px] text-xs text-muted">{tenant.fromEmail ?? 'No sender address yet'}</span>
+      )}
+    </header>
+  );
+}
+
+const ASKS = ['Fill Thursday’s empty slots', 'Who is due a visit this week?', 'Draft the October newsletter', 'Build a flow for quiet Tuesdays'];
+
+function Assistant({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
+  return (
+    <aside
+      aria-label="Assistant"
+      className="m-3 ml-0 hidden w-[340px] shrink-0 flex-col overflow-hidden rounded-[18px] border border-rule bg-paper shadow-[0_1px_2px_#0000000A] xl:flex"
+    >
+      <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-rule pr-3 pl-5">
+        <span className="text-sm font-semibold">New chat</span>
+        <span className="flex gap-0.5 text-muted">
+          <button type="button" aria-label="Start a new chat" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-inherit hover:bg-soft">
+            <SquarePen size={17} strokeWidth={1.6} />
+          </button>
+          <button type="button" onClick={onClose} aria-label="Close the assistant" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-inherit hover:bg-soft">
+            <X size={17} strokeWidth={1.6} />
+          </button>
+        </span>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-4 px-5 py-[22px]">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <svg aria-hidden width="40" height="40" viewBox="0 0 24 24">
+            <defs>
+              <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor="var(--accent-light)" />
+                <stop offset="1" stopColor="var(--accent)" />
+              </linearGradient>
+            </defs>
+            <path fill="url(#spark)" d="M12 2c.7 5.3 2.3 7.4 7.5 8.9-5.2 1.5-6.8 3.6-7.5 8.9-.7-5.3-2.3-7.4-7.5-8.9C9.7 9.4 11.3 7.3 12 2z" />
+          </svg>
+          <div className="display max-w-[300px] text-[22px] leading-[1.2]">What shall we fill this week?</div>
+          <div className="max-w-[270px] text-[13px] leading-normal text-muted">
+            I will see {tenant.name}’s diary, clients and every email result. These are the first questions I will answer.
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          {ASKS.map((q) => (
+            <button
+              key={q}
+              type="button"
+              disabled
+              className="flex items-center gap-2.5 rounded-xl border border-rule bg-paper px-[13px] py-[11px] text-left font-[inherit] text-[13px] text-ink disabled:cursor-default"
+            >
+              <span className="grow">{q}</span>
+              <ArrowRight aria-hidden size={14} className="text-faint" />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="p-3.5">
+        <div className="rounded-[14px] p-px" style={{ background: 'linear-gradient(135deg, var(--accent-light), var(--rule) 60%)' }}>
+          <div className="flex items-center gap-2.5 rounded-[13px] bg-paper py-3 pr-2.5 pl-3.5">
+            <span className="grow text-[13px] text-faint">The assistant arrives with flows</span>
+            <span aria-hidden className="flex size-[30px] items-center justify-center rounded-full bg-soft text-faint">
+              <ArrowUp size={15} />
+            </span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function NotFound({ tenants }: { tenants: Tenant[] }) {
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <div className="max-w-sm text-center">
+        <h1 className="display text-2xl">No business with that name</h1>
+        {tenants[0] && (
+          <Link to="/$tenant" params={{ tenant: tenants[0].id }} className="mt-3 inline-block text-sm font-semibold underline">
+            Go to {tenants[0].name}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function readFlag(key: string, fallback: boolean) {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+function writeFlag(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    // Private mode: the panel just reopens next time.
+  }
+}

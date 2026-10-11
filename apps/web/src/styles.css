@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource/cal-sans';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/newsreader';
+
+/* Fixed neutrals. The brand variables (accent, rail, display font) come from theme.ts. */
+:root {
+  --ink: #121214;
+  --muted: #6b6b72;
+  --faint: #a3a3a9;
+  --rule: #ecebe8;
+  --rule-strong: #d9d8d4;
+  --soft: #f3f3f1;
+  --paper: #ffffff;
+  --canvas: #f2f1ee;
+  --good: #1f6b41;
+  --good-bg: #e8f3ec;
+  --warn: #8a5a00;
+  --warn-bg: #fbf1dc;
+  --bad: #a3271b;
+  --bad-bg: #fbeae7;
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--display);
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-soft: var(--soft);
+  --color-paper: var(--paper);
+  --color-canvas: var(--canvas);
+  --color-accent: var(--accent);
+  --color-accent-light: var(--accent-light);
+  --color-accent-ink: var(--accent-ink);
+  --color-on-accent: var(--on-accent);
+  --color-tint: var(--tint);
+  --color-good: var(--good);
+  --color-good-bg: var(--good-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-bad: var(--bad);
+  --color-bad-bg: var(--bad-bg);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility display {
+  font-family: var(--display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+}
+
+/* Film grain over the pigment rail, masked to the glow. */
+.rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%23000' filter='url(%23g)' opacity='.65' d='M0 0h160v160H0z'/%3E%3C/svg%3E");
+  mask-image: radial-gradient(ellipse 160px 360px at 115% 0, #000 15%, #0009 55%, transparent 100%);
+}

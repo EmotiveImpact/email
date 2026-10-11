@@ -94,3 +94,42 @@ One entry per real choice: what we picked, what else we considered, and why. New
 
 ### D18. API keys are hashed
 - **Picked:** keys look like `pk_live_…`, are shown once, and only their SHA-256 is stored, with a short prefix for display.
+
+## App
+
+### D19. Routes declared in code
+- **Picked:** TanStack Router with routes written out in `router.tsx`.
+- **Considered:** the file-based router plugin (generates a route tree at build time).
+- **Why:** under ten routes, and no generated file to keep in step. Each route's loader fills the TanStack Query cache, so pages render with data and no spinners.
+- **Revisit if:** the app passes about 25 routes.
+
+### D20. Charts are hand-drawn SVG for now
+- **Picked:** a small `AreaChart` component (smooth line, area fill, comparison line) that takes the accent from CSS.
+- **Considered:** Recharts (in the register, MIT).
+- **Why:** the Home chart is one line and one area; 40 lines of SVG beat a 100 kB dependency, and it matches the prototype exactly.
+- **Revisit if:** we need tooltips, axes or several chart types (Reports, campaign results). Then Recharts.
+
+### D21. Fonts are self-hosted
+- **Picked:** Fontsource packages bundled with the app (Cal Sans, Inter, Geist, Newsreader, all OFL).
+- **Considered:** loading from Google Fonts.
+- **Why:** no request to Google from a logged-in dashboard (a Munich court ruled in 2022 that hot-linking Google Fonts passes visitors' IP addresses to Google without consent), and the fonts work offline and inside other apps.
+
+### D22. Any accent colour stays readable
+- **Picked:** five tuned presets plus "your own colour". For a custom colour we mix the tint, light and deep shades, and darken the text shade until it passes WCAG AA (4.5:1) on white. Buttons in the accent switch to dark text when the accent is pale.
+- **Why:** a business can pick its brand yellow without making the app unreadable.
+
+### D23. Appearance previews live across the whole app
+- **Picked:** while the Appearance page is open, the shell shows the draft brand everywhere; leaving the page without saving drops it.
+- **Why:** you judge a colour on the real Home page, not on a swatch.
+
+### D24. Local dashboard without sign-in, until stage 2
+- **Picked:** the API serves `/app/*` for one app (`DEV_DASHBOARD_APP_ID`) and only outside production. Sign-in (Better Auth with organisations) replaces it in stage 2.
+- **Why:** lets the app shell be built and seen against real data now, without building auth twice.
+
+### D25. Sending health shown against the real limits
+- **Picked:** Home shows inbox, bounce and spam rates, measured on emails that actually left. Bounce: good under 2%, warning to 5% (where Amazon starts a review). Spam: good under 0.1%, warning to 0.3% (where Gmail and Yahoo start rejecting).
+- **Why:** these are the numbers that get a sender suspended; a business should see them before Amazon does.
+
+### D26. Sample diary until the diary sync exists
+- **Picked:** Home has the "Your next 7 days" panel from day one, marked "Sample diary", with real data once Saleane's bookings flow in (stage 6).
+- **Why:** the diary is the product's point of difference, so Home is shaped around it now rather than redesigned later.
