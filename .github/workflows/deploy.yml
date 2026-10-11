@@ -1,0 +1,96 @@
+# Puts a version live in London. Runs only when someone starts it (Actions > Deploy > Run workflow),
+# never on a push (D97). The "production" environment can require an approval in GitHub settings.
+# First-time setup, done once by hand, is in docs/production.md.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to deploy
+        required: true
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # signs in to AWS without stored keys
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      AWS_REGION: eu-west-2
+      REPOSITORY: email-platform
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Check the settings are in place
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+        run: |
+          [ -n "$AWS_ACCOUNT_ID" ] || { echo "Set the AWS_ACCOUNT_ID variable on the production environment."; exit 1; }
+          [ -n "$APP_DOMAIN" ] || { echo "Set the APP_DOMAIN variable on the production environment."; exit 1; }
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/email-platform-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image (once per commit)
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          TAG=$(git rev-parse --short=12 HEAD)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "Image $TAG already built."
+          else
+            docker build -t "$REGISTRY/$REPOSITORY:$TAG" .
+            docker push "$REGISTRY/$REPOSITORY:$TAG"
+          fi
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter "@platform/infra..."
+
+      - name: Deploy (migrations run as the new version starts)
+        working-directory: infra
+        run: >-
+          pnpm exec cdk deploy EmailApp --require-approval never --outputs-file ../cdk-outputs.json
+          -c imageTag=${{ steps.image.outputs.tag }}
+          -c domain=${{ vars.APP_DOMAIN }}
+          -c sendingDomain=${{ vars.SENDING_DOMAIN }}
+          -c defaultFrom="${{ vars.DEFAULT_FROM }}"
+          -c certificateArn=${{ vars.CERTIFICATE_ARN }}
+          -c sendRate=${{ vars.SES_SEND_RATE }}
+          -c webCount=${{ vars.WEB_COUNT }}
+          -c githubOidcProviderArn=${{ vars.GITHUB_OIDC_PROVIDER_ARN }}
+
+      - name: Check the new version answers
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS "https://${{ vars.APP_DOMAIN }}/ready" && exit 0
+            sleep 10
+          done
+          echo "https://${{ vars.APP_DOMAIN }}/ready did not answer."; exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Deployed ${{ steps.image.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          [ -f cdk-outputs.json ] && { echo '```json'; cat cdk-outputs.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY" || true
