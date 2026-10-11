@@ -3,6 +3,7 @@
 @import '@fontsource/cal-sans';
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/newsreader';
+@import '@fontsource-variable/jetbrains-mono';
 
 /* Fixed neutrals. The brand variables (accent, rail, display font) come from theme.ts. */
 :root {
@@ -13,7 +14,8 @@
   --rule-strong: #d9d8d4;
   --soft: #f3f3f1;
   --paper: #ffffff;
-  --canvas: #f2f1ee;
+  --canvas: #eeede9;
+  --well: #e6e5e0;
   --good: #1f6b41;
   --good-bg: #e8f3ec;
   --warn: #8a5a00;
@@ -25,7 +27,7 @@
 @theme inline {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--display);
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-faint: var(--faint);
@@ -34,6 +36,10 @@
   --color-soft: var(--soft);
   --color-paper: var(--paper);
   --color-canvas: var(--canvas);
+  --color-well: var(--well);
+  --shadow-card: 0 0 0 1px #12121410, 0 1px 2px #1212140a, 0 8px 24px -12px #1212141a;
+  --shadow-lift: 0 0 0 1px #12121414, 0 12px 32px -12px #12121433;
+  --shadow-ring: 0 0 0 1px #12121414;
   --color-accent: var(--accent);
   --color-accent-light: var(--accent-light);
   --color-accent-ink: var(--accent-ink);
@@ -65,6 +71,28 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+}
+
+/* Numbers that line up in columns and do not jitter as they change. */
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The small mono label above a heading or column. */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a8a90;
+}
+
+/* Dotted work surface behind an email or a design. */
+@utility dots {
+  background-color: var(--well);
+  background-image: radial-gradient(#12121414 1px, transparent 1px);
+  background-size: 18px 18px;
 }
 
 @utility display {

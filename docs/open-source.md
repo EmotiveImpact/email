@@ -171,6 +171,17 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `@calcom/embed-react` 1.5.3 | Own licence file | Not used |
 | Klaviyo predictive analytics and attribution docs | Product docs | Principles only: predicted next order date and a five-day email window (D56, D61) |
 
+## Used in stage 7 (exceptional UI)
+
+| Package or project (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `cmdk` 1.1.1 | MIT | Considered for the Cmd K palette. Built our own, about 150 lines (D69) |
+| `kbar` 1.0.0 | MIT | Considered for the same; heavier than we need (D69) |
+| `@uiw/react-heat-map` 2.3.4 | MIT | Considered for the week grid. It draws a year calendar; we need days by part of day (D66) |
+| `@tremor/react` 3.18.7 | Apache-2.0 | Studied: KPI cards with a change pill and a split bar. Our cards are hand built on the same idea (D65) |
+| `@visx/shape` 4.0.0 (Airbnb) | MIT | Considered for charts and sparklines. Our hand-drawn SVG in `charts.tsx` stays smaller |
+| `@fontsource-variable/jetbrains-mono` 5.3.0 | OFL-1.1 (font), MIT (package) | The mono eyebrow labels |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -186,3 +197,7 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://cdn.jsdelivr.net/gh/alextselegidis/easyappointments@main/README.md
 - https://help.klaviyo.com/hc/en-us/articles/360020919731
 - https://help.klaviyo.com/hc/en-us/articles/115005248128-Understanding-message-conversion-tracking
+- https://github.com/pacocoursey/cmdk
+- https://npmjs.com/package/@uiw/react-heat-map
+- https://npmjs.com/package/@tremor/react
+- https://awesome.cube.dev/tools/visx

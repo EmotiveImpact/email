@@ -130,7 +130,7 @@ describe('flows', () => {
   });
 
   it('offers a quiet day’s free times to the clients closest to due, a few per slot', async () => {
-    const { engine, app, client, turnOn, run, drain, transport } = await studio();
+    const { engine, app, tenant, client, turnOn, run, drain, transport } = await studio();
     for (const [i, name] of ['Ama', 'Kofi', 'Maya', 'Esi', 'Yaw'].entries()) await client(`${name.toLowerCase()}@example.com`, name, [-60 - i, -30 - i]);
     const day = daysFromNow(2, 9);
     await engine.setAvailability(app, {
@@ -139,7 +139,11 @@ describe('flows', () => {
       to: daysFromNow(14, 0),
       slots: [0, 1, 2].map((h) => ({ startsAt: new Date(day.getTime() + h * 3600_000), endsAt: new Date(day.getTime() + (h + 1) * 3600_000) })),
     });
-    await turnOn('fill_slots', { perSlot: 1 });
+    const fill = await turnOn('fill_slots', { perSlot: 1 });
+    const { next } = await engine.flowDetail(tenant.id, fill.id);
+    expect(next.total).toBe(3);
+    expect(next.fill).toMatchObject({ open: 3, times: ['10am', '11am', '12pm'] });
+    expect(next.people.map((p) => p.firstName)).toEqual(['Ama', 'Kofi', 'Maya']);
 
     expect(await run()).toEqual({ fill_slots: 3 });
     expect(await run()).toEqual({}); // that day has had its offer

@@ -26,6 +26,7 @@ import { createCampaigns } from './campaigns.ts';
 import { createDiary } from './diary.ts';
 import { createDomains } from './domains.ts';
 import { createFlows } from './flows.ts';
+import { createInsights } from './insights.ts';
 import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
@@ -237,6 +238,7 @@ export function createEngine(deps: {
   const sendRate = config.sendRate ?? 10;
   const diary = createDiary(db, getTenant);
   const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary });
+  const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows });
   const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots });
 
   // ---------------------------------------------------------------- accounts, apps and keys
@@ -832,6 +834,7 @@ export function createEngine(deps: {
     listMessages,
     messageStats,
     dailyCounts,
+    ...insights,
     runJob,
   };
 }

@@ -328,3 +328,43 @@ One entry per real choice: what we picked, what else we considered, and why. New
 ### D64. Campaigns use the diary too
 - **Picked:** campaigns can use `{{booking_url}}`, `{{last_service}}` and `{{weeks_since_visit}}`, and the Free times block, all filled per client at send time.
 - **Why:** a one-off newsletter should be as personal as a flow.
+
+## Stage 7: the exceptional UI pass
+
+Mocks for every key screen, the design components and four palettes are on one canvas: https://claude.ai/artifact/NLutM5seB2e1i4ExusW2GY
+
+### D65. Home leads with money booked from email
+- **Picked:** the first number on Home is the money from bookings that followed an email (D61), against the period before, split into flows and campaigns. Emails sent moved into Sending health.
+- **Considered:** emails sent and delivery rate first, as most email tools do.
+- **Why:** an owner judges email by the chairs it fills. Volume is a means, not the result.
+- **Revisit if:** a business has no diary connected; Home then shows the empty state and the week from a sample diary.
+
+### D66. The week is split into four parts of the day
+- **Picked:** Morning (before 12), Midday (12 to 2), Afternoon (2 to 5) and Evening (5 onwards), in the business's time zone. The part with the most free slots gets a ring, and the headline names it ("Thursday afternoon has 4 free slots").
+- **Considered:** hourly columns; a GitHub-style calendar (`@uiw/react-heat-map`, MIT).
+- **Why:** salons talk about a quiet afternoon, not a quiet 3pm. Seven by four fits a card and reads at a glance.
+
+### D67. "Worth doing today" is ranked from real numbers only
+- **Picked:** up to three suggestions: fill the quietest stretch (always first, because it expires), switch on flows that are off when people would get them, and follow up the best recent campaign. Value is the business's average price over six months times the slots or people, shown as "Up to". Actions open the flow to review before switching it on.
+- **Why:** suggestions an owner can trust and act on in one tap. We show no benchmarks we cannot back with data yet; those come with the marketplace's aggregate stats.
+
+### D68. The app sits on the canvas, cards float
+- **Picked:** no white panel around pages; content sits on the warm canvas with cards that use a layered hairline shadow instead of a border. Mono eyebrow labels, Cal Sans for headings and big figures (proportional digits, since Cal Sans tabular digits look spaced), Inter tabular digits in tables. The rail has rounded corners. The assistant panel starts closed until it does something.
+- **Why:** this is the look Edem approved in the mocks.
+
+### D69. Search lives on Cmd K (Ctrl K)
+- **Picked:** a palette that jumps to pages, flows, campaigns and clients (searched as you type), opened from the top bar or the shortcut.
+- **Considered:** `cmdk` 1.1.1 (MIT), `kbar` 1.0.0 (MIT).
+- **Why:** it is about 150 lines with our own data, and keeps one less dependency. Swap to `cmdk` if we add nested commands.
+
+### D70. A flow is shown as a path
+- **Picked:** Flows is a list beside the open flow. The flow shows When, Who, Email and Result as a chain, with its figures and a Next send card naming the day, its free times and the first clients in line. Editing moves to `/flows/:id/email`. Flow detail now returns `next` from the same code that sends.
+- **Why:** owners see what a flow does and what it earned without reading settings.
+
+### D71. Audience shows rhythm, not raw attributes
+- **Picked:** each client row shows an avatar, their usual gap between visits and their next step (booked, due, overdue, away). The contacts list returns each person's rhythm.
+- **Why:** "who should I be talking to" matters more than host attributes, which stay on the client's page.
+
+### D72. The default palette is Edem's call
+- **Picked:** four palettes in the mocks (Cobalt and Sand, Ink and Teal, Plum and Blush, Graphite and Lime). Colours are tokens in `theme.ts` and `styles.css`, so switching is one change. Building continues on the current tokens until Edem picks.
+

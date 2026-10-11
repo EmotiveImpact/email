@@ -199,6 +199,9 @@ await engine.updateCampaign(linden.id, draft.id, { content: { ...content, blocks
 
 // ---------------------------------------------------------------- flows, and the bookings that followed
 
+/** The calendar day `offset` days from `at`, as flow send reasons record it. */
+const day = (at: Date, offset: number) => new Date(at.getTime() + offset * 86_400_000).toISOString().slice(0, 10);
+
 const flows = await engine.listFlows(linden.id);
 for (const kind of ['welcome', 'rebook', 'fill_slots'] as const) await engine.updateFlow(linden.id, flows.find((f) => f.kind === kind)!.id, { live: true });
 const rebook = flows.find((f) => f.kind === 'rebook')!;
@@ -223,7 +226,7 @@ for (const [i, person] of people.slice(0, 26).entries()) {
     createdAt: at,
     sentAt: at,
   });
-  await db.insert(flowSends).values({ id: newId('fsd'), flowId: flow.id, contactId: person.id, reason: `seed:${i}`, messageId: id, createdAt: at });
+  await db.insert(flowSends).values({ id: newId('fsd'), flowId: flow.id, contactId: person.id, reason: flow.kind === 'fill_slots' ? `fill:${day(at, 2)}` : `rebook:${day(at, -35)}`, messageId: id, createdAt: at });
   if (random() < 0.55) await db.insert(messageEvents).values({ id: newId('mev'), messageId: id, type: 'open', occurredAt: new Date(at.getTime() + 3_600_000) });
   const bookedAt = new Date(at.getTime() + (2 + random() * 60) * 3_600_000);
   if (random() < 0.38) await visit(person.email, new Date(Math.min(at.getTime() + (3 + random() * 10) * 86_400_000, Date.now() - 86_400_000)), { bookedAt });

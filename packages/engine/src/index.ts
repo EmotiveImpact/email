@@ -12,3 +12,4 @@ export * from './diary.ts';
 export * from './flows.ts';
 export * from './slots.ts';
 export { sampleValues } from './campaigns.ts';
+export * from './insights.ts';

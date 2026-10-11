@@ -393,6 +393,11 @@ describe('the diary and flows', () => {
     expect(diary).toMatchObject({ connected: true, dueCount: 1, due: [{ contact: { email: 'ama@example.com' } }] });
     expect(diary.days).toHaveLength(7);
 
+    const overview = (await (await app('GET', `${base}/overview?days=7`)).json()) as { days: number; week: { parts: string[] }; dueCount: number; opportunities: { kind: string }[] };
+    expect(overview).toMatchObject({ days: 7, dueCount: 1, week: { parts: ['Morning', 'Midday', 'Afternoon', 'Evening'] } });
+    expect(overview.opportunities.map((o) => o.kind)).toContain('rebook');
+    expect((await app('GET', `${base}/overview?days=12`)).status).toBe(422);
+
     const flows = (await (await app('GET', `${base}/flows`)).json()) as { id: string; kind: string; live: boolean; problems: string[] }[];
     expect(flows.map((f) => f.kind)).toEqual(['welcome', 'rebook', 'fill_slots', 'winback']);
     const rebook = flows.find((f) => f.kind === 'rebook')!;

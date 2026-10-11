@@ -8,6 +8,8 @@ import {
   Globe,
   House,
   Megaphone,
+  Plus,
+  Search,
   Palette,
   Send,
   Sparkles,
@@ -18,7 +20,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { auth, meQuery, tenantsQuery, type Tenant } from '../api.ts';
+import { auth, meQuery, tenantsQuery, useCreateCampaign, type Tenant } from '../api.ts';
+import { CommandPalette } from './CommandPalette.tsx';
 import { inStudio, studioSession, tellHost } from '../studio.ts';
 import { brandVars, type Brand } from '../theme.ts';
 import { cx } from './ui.tsx';
@@ -66,10 +69,22 @@ export function Shell() {
   const { data: tenants } = useSuspenseQuery(tenantsQuery);
   const tenant = tenants.find((t) => t.id === tenantId);
   const [preview, setPreview] = useState<Brand | null>(null);
-  const [assistant, setAssistant] = useState(() => readFlag('assistant', true));
+  const [assistant, setAssistant] = useState(() => readFlag('assistant', false));
+  const [searching, setSearching] = useState(false);
   const style = useMemo(() => brandVars(preview ?? tenant?.brand) as CSSProperties, [preview, tenant?.brand]);
 
   useEffect(() => writeFlag('assistant', assistant), [assistant]);
+  // ⌘K (Ctrl+K elsewhere) opens search from anywhere in the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearching((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   useEffect(() => {
     setPreview(null);
     writeLastTenant(tenantId);
@@ -83,15 +98,16 @@ export function Shell() {
       <PreviewContext.Provider value={{ setPreview }}>
         <div style={style} className="flex h-full min-h-[600px] bg-canvas">
           <Rail tenant={tenant} assistant={assistant} onAssistant={() => setAssistant((a) => !a)} />
-          <main className="m-3 ml-0 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-rule bg-paper shadow-[0_1px_2px_#0000000A]">
-            <TopBar tenant={tenant} tenants={tenants} />
+          <main className="flex min-w-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="@container mx-auto flex max-w-[1180px] flex-col gap-5 px-[30px] py-[26px]">
+              <div className="@container mx-auto flex max-w-[1240px] flex-col gap-5 px-8 pt-5 pb-12">
+                <TopBar tenant={tenant} tenants={tenants} onSearch={() => setSearching(true)} />
                 <Outlet />
               </div>
             </div>
           </main>
           {assistant && <Assistant tenant={tenant} onClose={() => setAssistant(false)} />}
+          <CommandPalette tenant={tenant} open={searching} onClose={() => setSearching(false)} />
         </div>
       </PreviewContext.Provider>
     </TenantContext.Provider>
@@ -116,7 +132,11 @@ function RailLink({ area, tenant }: { area: Area; tenant: string }) {
 
 function Rail({ tenant, assistant, onAssistant }: { tenant: Tenant; assistant: boolean; onAssistant: () => void }) {
   return (
-    <nav aria-label="Main" className="rail relative isolate flex w-16 shrink-0 flex-col items-center gap-1.5 py-[18px]" style={{ background: 'var(--rail-bg)' }}>
+    <nav
+      aria-label="Main"
+      className="rail relative isolate flex w-16 shrink-0 flex-col items-center gap-1.5 overflow-hidden rounded-r-[22px] py-[18px]"
+      style={{ background: 'var(--rail-bg)' }}
+    >
       <Link
         to="/$tenant"
         params={{ tenant: tenant.id }}
@@ -196,16 +216,28 @@ function AccountMenu() {
   );
 }
 
-function TopBar({ tenant, tenants }: { tenant: Tenant; tenants: Tenant[] }) {
+function TopBar({ tenant, tenants, onSearch }: { tenant: Tenant; tenants: Tenant[]; onSearch: () => void }) {
   const navigate = useNavigate();
+  const create = useCreateCampaign(tenant.id);
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  async function newEmail() {
+    const draft = await create.mutateAsync({});
+    await navigate({ to: '/$tenant/campaigns/$campaign', params: { tenant: tenant.id, campaign: draft.id } });
+  }
   return (
-    <header className="flex h-[58px] shrink-0 items-center gap-3.5 border-b border-rule pr-[18px] pl-[26px]">
-      <label className="relative flex items-center gap-2 text-sm font-semibold">
-        <span className="sr-only">Business</span>
+    <header className="flex flex-wrap items-center gap-3">
+      <label className="relative flex h-10 items-center gap-2.5 rounded-full bg-paper pr-3.5 pl-1.5 text-sm font-semibold shadow-ring">
+        <span aria-hidden className="flex size-7 items-center justify-center rounded-full bg-accent text-[11px] text-on-accent">
+          {initials(tenant.name)}
+        </span>
+        <span className="max-w-[220px] truncate">{tenant.name}</span>
+        {tenant.app && tenant.app !== 'Direct' && <span className="font-normal text-faint">{tenant.app}</span>}
+        <ChevronDown aria-hidden size={15} className="text-faint" />
         <select
+          aria-label="Business"
           value={tenant.id}
           onChange={(e) => (e.target.value === '+' ? navigate({ to: '/setup' }) : navigate({ to: '/$tenant', params: { tenant: e.target.value } }))}
-          className="cursor-pointer appearance-none border-0 bg-transparent py-1 pr-6 font-[inherit] text-[inherit] outline-offset-4"
+          className="absolute inset-0 cursor-pointer appearance-none rounded-full opacity-0"
         >
           {tenants.map((t) => (
             <option key={t.id} value={t.id}>
@@ -215,13 +247,29 @@ function TopBar({ tenant, tenants }: { tenant: Tenant; tenants: Tenant[] }) {
           ))}
           <option value="+">Add a business…</option>
         </select>
-        <ChevronDown size={15} className="pointer-events-none absolute right-0 text-faint" />
       </label>
-      {tenant.status === 'paused' ? (
-        <span className="rounded-full bg-bad-bg px-2.5 py-[3px] text-xs font-medium text-bad">Sending paused</span>
-      ) : (
-        <span className="rounded-full bg-soft px-2.5 py-[3px] text-xs text-muted">{tenant.fromEmail ?? 'No sender address yet'}</span>
+      <button
+        type="button"
+        onClick={onSearch}
+        className="flex h-10 min-w-[220px] flex-[1_1_260px] cursor-pointer items-center gap-2.5 rounded-full border-0 bg-white/60 px-3.5 text-left font-[inherit] text-[13.5px] text-faint shadow-ring transition hover:bg-white"
+      >
+        <Search aria-hidden size={16} />
+        <span className="grow truncate">Search clients, emails and flows</span>
+        <kbd className="rounded-md bg-paper px-1.5 py-0.5 font-mono text-[11px] text-muted shadow-ring">{mac ? '⌘K' : 'Ctrl K'}</kbd>
+      </button>
+      {tenant.status === 'paused' && (
+        <Link to="/$tenant/sending" params={{ tenant: tenant.id }} className="rounded-full bg-bad-bg px-3 py-1.5 text-xs font-semibold text-bad">
+          Sending paused
+        </Link>
       )}
+      <button
+        type="button"
+        onClick={newEmail}
+        disabled={create.isPending}
+        className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border-0 bg-ink px-4 font-[inherit] text-[13px] font-medium text-white transition hover:bg-black disabled:opacity-60"
+      >
+        <Plus aria-hidden size={15} /> New email
+      </button>
     </header>
   );
 }
@@ -232,7 +280,7 @@ function Assistant({ tenant, onClose }: { tenant: Tenant; onClose: () => void })
   return (
     <aside
       aria-label="Assistant"
-      className="m-3 ml-0 hidden w-[340px] shrink-0 flex-col overflow-hidden rounded-[18px] border border-rule bg-paper shadow-[0_1px_2px_#0000000A] xl:flex"
+      className="m-3 ml-0 hidden w-[340px] shrink-0 flex-col overflow-hidden rounded-[18px] bg-paper shadow-card xl:flex"
     >
       <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-rule pr-3 pl-5">
         <span className="text-sm font-semibold">New chat</span>

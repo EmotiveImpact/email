@@ -368,10 +368,10 @@ export function Preview({
     placeholderData: (p) => p,
   });
   return (
-    <Card className="sticky top-4 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-rule px-4 py-2.5">
-        <div className="flex min-w-0 flex-col">
-          <span className="truncate text-[13px] font-medium">{fill(subject, tenant.name, data?.slotDay) || 'No subject yet'}</span>
+    <section aria-label="Email preview" className="dots sticky top-4 flex flex-col gap-3 rounded-[18px] p-4">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-[13px] font-semibold">{fill(subject, tenant.name, data?.slotDay) || 'No subject yet'}</span>
           <span className="truncate text-xs text-muted">
             {tenant.name} · {fill(content.preview, tenant.name, data?.slotDay) || 'No preview text'}
           </span>
@@ -387,7 +387,7 @@ export function Preview({
           ]}
         />
       </div>
-      <div className="grid place-items-center bg-[#F2F1EE] px-3 py-3">
+      <div className="grid place-items-center">
         {error ? (
           <Notice tone="bad">{error.message}</Notice>
         ) : (
@@ -395,11 +395,14 @@ export function Preview({
             title="Email preview"
             sandbox=""
             srcDoc={data?.html ?? ''}
-            className={cx('h-[640px] rounded-lg border-0 bg-[#F2F1EE] transition-[width]', device === 'mobile' ? 'w-[375px] max-w-full' : 'w-full')}
+            className={cx(
+              'h-[660px] rounded-[10px] border-0 bg-[#F2F1EE] shadow-[0_0_0_1px_#1212140d,0_24px_50px_-28px_#12121459] transition-[width]',
+              device === 'mobile' ? 'w-[375px] max-w-full' : 'w-full',
+            )}
           />
         )}
       </div>
-    </Card>
+    </section>
   );
 }
 
