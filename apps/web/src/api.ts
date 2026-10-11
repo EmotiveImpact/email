@@ -17,6 +17,8 @@ export type Tenant = {
   fromEmail: string | null;
   replyTo: string | null;
   status: 'active' | 'paused';
+  /** Why the reputation guard paused sending, when it did. */
+  pausedReason: string | null;
   brand: Brand;
 };
 
@@ -266,7 +268,7 @@ export type Campaign = {
   stats: CampaignStats | null;
 };
 
-export type CampaignDetail = Campaign & { problems: string[]; audience: Audience | null };
+export type CampaignDetail = Campaign & { problems: string[]; audience: Audience | null; sender: { from: string; own: boolean } };
 export type CampaignPatch = Partial<Pick<Campaign, 'name' | 'subject' | 'segmentId' | 'content'>>;
 
 const campaignPath = (tenant: string, id?: string) => `/app/tenants/${tenant}/campaigns${id ? `/${id}` : ''}`;
@@ -335,3 +337,53 @@ export function useDeleteCampaign(tenant: string) {
     onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns', tenant] }),
   });
 }
+
+// ---------------------------------------------------------------- sending domain
+
+export type DnsRecord = { type: 'CNAME' | 'TXT' | 'MX'; name: string; value: string };
+export type Domain = {
+  id: string;
+  domain: string;
+  status: 'pending' | 'verified' | 'failed';
+  records: DnsRecord[];
+  dmarc: boolean;
+  dmarcRecord: DnsRecord;
+  checkedAt: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+};
+export type SendingSetup = {
+  domains: Domain[];
+  reputation: { sent: number; bounced: number; complained: number; bounceRate: number; complaintRate: number };
+  sender: { from: string; replyTo: string | null; own: boolean };
+};
+
+export const sendingQuery = (tenant: string) =>
+  queryOptions({
+    queryKey: ['sending-setup', tenant],
+    queryFn: () => request<SendingSetup>(`/app/tenants/${tenant}/sending`),
+    // While a domain waits for DNS, look again now and then.
+    refetchInterval: (q) => (q.state.data?.domains.some((d) => d.status === 'pending') ? 30_000 : false),
+  });
+
+function useSendingAction<I, O>(tenant: string, call: (input: I) => Promise<O>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: call,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['sending-setup', tenant] });
+      void client.invalidateQueries({ queryKey: ['tenants'] });
+    },
+  });
+}
+
+export const useAddDomain = (tenant: string) =>
+  useSendingAction(tenant, (input: { domain: string; localPart: string }) =>
+    request<Domain>(`/app/tenants/${tenant}/domains`, { method: 'POST', body: JSON.stringify(input) }),
+  );
+export const useCheckDomain = (tenant: string) =>
+  useSendingAction(tenant, (id: string) => request<Domain>(`/app/tenants/${tenant}/domains/${id}/check`, { method: 'POST', body: '{}' }));
+export const useRemoveDomain = (tenant: string) =>
+  useSendingAction(tenant, (id: string) => request<void>(`/app/tenants/${tenant}/domains/${id}`, { method: 'DELETE' }));
+export const useResumeSending = (tenant: string) =>
+  useSendingAction(tenant, (_: void) => request<Tenant>(`/app/tenants/${tenant}/resume`, { method: 'POST', body: '{}' }));

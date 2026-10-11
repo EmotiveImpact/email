@@ -42,7 +42,7 @@ import {
 } from '../api.ts';
 import { useTenant } from '../components/Shell.tsx';
 import { Button, Card, Notice, Segmented, cx } from '../components/ui.tsx';
-import { tellHost } from '../studio.ts';
+import { inStudio, tellHost } from '../studio.ts';
 import { CampaignBadge, rate, when } from './Campaigns.tsx';
 
 const nf = new Intl.NumberFormat('en-GB');
@@ -637,8 +637,13 @@ function ReviewPanel({
     <Sheet title="Review and send" onClose={onClose}>
       <dl className="m-0 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
         <dt className="text-muted">From</dt>
-        <dd className="m-0 truncate">
-          {tenant.name} &lt;{tenant.fromEmail ?? 'the platform address'}&gt;
+        <dd className="m-0 flex flex-col">
+          <span className="truncate">{current.sender.from}</span>
+          {!current.sender.own && !inStudio() && (
+            <Link to="/$tenant/settings/domain" params={{ tenant: tenant.id }} className="text-xs text-muted underline hover:text-ink">
+              Send from your own domain
+            </Link>
+          )}
         </dd>
         <dt className="text-muted">Subject</dt>
         <dd className="m-0">{fill(subject, tenant.name) || '–'}</dd>

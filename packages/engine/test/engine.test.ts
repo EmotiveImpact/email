@@ -44,7 +44,7 @@ describe('sending', () => {
     });
     expect(first.status).toBe('queued');
     expect(first.to).toBe('ama@example.com');
-    expect(first.from).toBe('news@linden.test');
+    expect(first.from).toBe('Linden Studio <news@linden.test>');
 
     const again = await engine.sendEmail(app, { tenant: 'linden', to: 'ama@example.com', subject: 'x', text: 'x', idempotencyKey: 'reminder-123' });
     expect(again.id).toBe(first.id);

@@ -245,3 +245,33 @@ One entry per real choice: what we picked, what else we considered, and why. New
 - **Picked:** the studio posts its content height; `mountStudio` in `@platform/sdk/browser` sets the frame height. About thirty lines.
 - **Considered:** iframe-resizer (now GPL-3.0 or a paid licence from v5), Penpal (MIT, a full RPC layer).
 - **Why:** we need four one-way events (ready, resize, session-expired, campaign.scheduled). Penpal is the step up if hosts need to call into the studio.
+
+## Stage 5: sending domains and per-business protection
+
+### D49. Every business is its own SES tenant from the start
+- **Picked:** creating a business creates an SES tenant (`t-<id>`), and every email names it. Domains are linked to it when `AWS_ACCOUNT_ID` is set.
+- **Why:** SES then measures and, if needed, pauses each business on its own reputation instead of the whole account (platform-direction.md section 4). Doing it from day one means no migration later.
+
+### D50. Send from the platform address until the domain is verified
+- **Picked:** a business with no verified domain sends as `Linden Studio <hello@platform>` with replies going to its own address. Once DKIM verifies, its own address takes over automatically. In production (`TRANSPORT=ses`) an explicit `from` on an unverified domain is refused.
+- **Considered:** blocking all sending until a domain is verified.
+- **Why:** a salon owner can send their first newsletter today and fix DNS later; nobody can send as a domain they do not own. Locally the rule is off, so the demo needs no DNS.
+
+### D51. DKIM through SES Easy DKIM; DMARC checked and suggested, not required
+- **Picked:** three CNAME records from SES, checked every five minutes for three days and on "Check now". We also look up `_dmarc` and suggest a report-only record (`p=none`).
+- **Considered:** a custom MAIL FROM domain for SPF alignment.
+- **Why:** DKIM alignment alone passes DMARC, and three CNAMEs is the least a salon owner can be asked to add. Gmail and Yahoo expect DMARC from bulk senders, so we nudge without blocking.
+- **Revisit if:** customers need SPF alignment for strict receivers; add MAIL FROM records then.
+
+### D52. A domain belongs to one business
+- **Picked:** a domain can be set up by one business only; a second gets "already set up by another business".
+- **Why:** SES identities are account-wide, so two businesses claiming one domain would sign each other's mail.
+
+### D53. A reputation guard pauses one business before SES pauses everyone
+- **Picked:** after each hard bounce or spam report we look at the business's last seven days. With at least 200 emails sent, more than 4% bounces or 0.2% spam reports pauses that business, says why in plain words, and sends a `tenant.paused` webhook. Queued email is held and goes again on "Resume sending".
+- **Why:** SES reviews an account at 5% bounces or 0.1% complaints across everyone. One business with a bought list must not take Saleane's reminders down for every salon.
+- **Revisit if:** the 0.2% complaint level proves too strict or loose with real data; it is a constant in `REPUTATION_LIMITS`.
+
+### D54. Partners set up domains through the API too
+- **Picked:** `GET/POST /v1/tenants/:id/domains`, `POST …/:domainId/check` and `DELETE`, plus `domain.verified` webhooks.
+- **Why:** this is the Connect flow from platform-direction.md: a partner's own settings screen can show our DNS records without sending its customers to us.

@@ -22,6 +22,8 @@ import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
 import { createAudience } from './audience.ts';
 import { createCampaigns } from './campaigns.ts';
+import { createDomains } from './domains.ts';
+import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
 import { parseSesEvent, type SesEvent } from './ses-events.ts';
@@ -36,7 +38,12 @@ export type EngineConfig = {
   defaultFrom: string;
   /** Emails per second the SES account allows; campaigns are paced to stay under it. Default 10. */
   sendRate?: number;
+  /** Only send from domains a business has verified. On in production; off for local work. */
+  verifiedDomainsOnly?: boolean;
 };
+
+/** Pause a business before SES would act on the whole account: lower than SES's review levels. */
+export const REPUTATION_LIMITS = { minimumSends: 200, bounceRate: 0.04, complaintRate: 0.002, windowDays: 7 };
 
 type Tenant = typeof tenants.$inferSelect;
 type Message = typeof messages.$inferSelect;
@@ -127,6 +134,8 @@ export const WEBHOOK_EVENTS = [
   'email.opened',
   'email.clicked',
   'contact.unsubscribed',
+  'domain.verified',
+  'tenant.paused',
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
@@ -187,10 +196,27 @@ export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<
   return result.data;
 }
 
-export function createEngine(deps: { db: Db; transport: Transport; queue: Queue; config: EngineConfig; fetch?: typeof fetch }) {
+export function createEngine(deps: {
+  db: Db;
+  transport: Transport;
+  queue: Queue;
+  config: EngineConfig;
+  fetch?: typeof fetch;
+  provisioner?: Provisioner;
+  resolveTxt?: (name: string) => Promise<string[][]>;
+}) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
-  const campaignsApi = createCampaigns({ db, queue, defaultFrom: config.defaultFrom, sendRate: config.sendRate ?? 10 });
+  const domainsApi = createDomains({
+    db,
+    queue,
+    provisioner: deps.provisioner ?? new LocalProvisioner(),
+    defaultFrom: config.defaultFrom,
+    verifiedDomainsOnly: config.verifiedDomainsOnly ?? false,
+    resolveTxt: deps.resolveTxt,
+    onVerified: (domain) => emit(domain.tenantId, 'domain.verified', null, { domain: domain.domain }),
+  });
+  const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate: config.sendRate ?? 10 });
 
   // ---------------------------------------------------------------- accounts, apps and keys
 
@@ -238,7 +264,7 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
       name: input.name,
       fromEmail: input.fromEmail ?? null,
       replyTo: input.replyTo ?? null,
-      sesTenant: input.sesTenant ?? null,
+      ...(input.sesTenant && { sesTenant: input.sesTenant }),
       brand: (input.brand ?? {}) as Brand,
     };
     const [row] = await db
@@ -246,6 +272,8 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
       .values({ id: newId('ten'), appId, externalId, ...values })
       .onConflictDoUpdate({ target: [tenants.appId, tenants.externalId], set: values })
       .returning();
+    // Every business gets its own SES tenant, so SES judges its reputation on its own.
+    if (!row!.sesTenant) return { ...row!, sesTenant: await domainsApi.ensureSesTenant(row!) };
     return row!;
   }
 
@@ -383,6 +411,8 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
       if (existing) return existing;
     }
 
+    if (input.from) await domainsApi.assertCanSendFrom(tenant, input.from);
+    const sender = input.from ? { from: input.from, replyTo: tenant.replyTo } : await domainsApi.senderFor(tenant);
     const blocked = await blockedReason(tenant.id, input.to, input.stream);
     const id = newId('msg');
     const [message] = await db
@@ -393,8 +423,8 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
         stream: input.stream,
         idempotencyKey: input.idempotencyKey ?? null,
         to: input.to,
-        from: input.from ?? tenant.fromEmail ?? config.defaultFrom,
-        replyTo: input.replyTo ?? tenant.replyTo,
+        from: sender.from,
+        replyTo: input.replyTo ?? sender.replyTo,
         subject: input.subject,
         html: input.html ?? null,
         text: input.text ?? null,
@@ -426,6 +456,11 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
       .returning();
     if (!claimed) return; // already sent, or suppressed meanwhile
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, claimed.tenantId));
+    if (tenant?.status === 'paused') {
+      // Held, not lost: resuming the business queues these again.
+      await db.update(messages).set({ status: 'queued', error: 'paused', updatedAt: new Date() }).where(eq(messages.id, claimed.id));
+      return;
+    }
 
     // Campaigns are paced over time, so someone may have unsubscribed since this was queued.
     if (claimed.stream === 'marketing') {
@@ -519,7 +554,67 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
 
     const webhook = SES_WEBHOOK[event.type];
     if (webhook) await emit(message.tenantId, webhook, message.id, event.detail);
+    if ((event.type === 'bounce' && event.permanent) || event.type === 'complaint') await guardReputation(message.tenantId);
     return { applied: true as const, messageId: message.id, type: event.type };
+  }
+
+  // ---------------------------------------------------------------- reputation
+
+  /** Bounce and complaint rates over the last week, out of emails that actually left. */
+  async function reputation(tenantId: string) {
+    const since = new Date(Date.now() - REPUTATION_LIMITS.windowDays * 86_400_000);
+    const [row] = await db
+      .select({
+        sent: sql<number>`(count(*) filter (where ${messages.status} in ('sent', 'delivered', 'delivery_delayed', 'bounced', 'complained')))::int`,
+        bounced: sql<number>`(count(*) filter (where ${messages.status} = 'bounced'))::int`,
+        complained: sql<number>`(count(*) filter (where ${messages.status} = 'complained'))::int`,
+      })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), sql`${messages.sentAt} >= ${since}`));
+    const { sent, bounced, complained } = row!;
+    return { sent, bounced, complained, bounceRate: sent ? bounced / sent : 0, complaintRate: sent ? complained / sent : 0 };
+  }
+
+  /**
+   * The circuit breaker. SES reviews a whole account at a 5% bounce or 0.1% complaint rate and can
+   * pause it, which would stop every business. We pause the one business first, a little earlier.
+   */
+  async function guardReputation(tenantId: string) {
+    const r = await reputation(tenantId);
+    if (r.sent < REPUTATION_LIMITS.minimumSends) return;
+    const reason =
+      r.bounceRate > REPUTATION_LIMITS.bounceRate
+        ? `${(r.bounceRate * 100).toFixed(1)}% of emails this week bounced. That usually means an old or bought list.`
+        : r.complaintRate > REPUTATION_LIMITS.complaintRate
+          ? `${(r.complaintRate * 100).toFixed(2)}% of people marked emails as spam this week.`
+          : null;
+    if (!reason) return;
+    const [paused] = await db
+      .update(tenants)
+      .set({ status: 'paused', pausedReason: reason, pausedAt: new Date() })
+      .where(and(eq(tenants.id, tenantId), eq(tenants.status, 'active')))
+      .returning();
+    if (paused) await emit(tenantId, 'tenant.paused', null, { reason, ...r });
+  }
+
+  /** Sending again after a pause: held emails go back on the queue, paced like a campaign. */
+  async function resumeTenant(tenantId: string) {
+    const [row] = await db
+      .update(tenants)
+      .set({ status: 'active', pausedReason: null, pausedAt: null })
+      .where(eq(tenants.id, tenantId))
+      .returning();
+    if (!row) throw new PlatformError('not_found', 'No such business.', 404);
+    const held = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), eq(messages.status, 'queued'), eq(messages.error, 'paused')));
+    const start = Date.now();
+    await queue.enqueueMany(
+      'send-message',
+      held.map((m, i) => ({ data: { messageId: m.id }, startAfter: new Date(start + (i / (config.sendRate ?? 10)) * 1000) })),
+    );
+    return row;
   }
 
   // ---------------------------------------------------------------- unsubscribe
@@ -673,11 +768,15 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
     if (name === 'send-message') return processSend((data as Jobs['send-message']).messageId);
     if (name === 'deliver-webhook') return processWebhook((data as Jobs['deliver-webhook']).deliveryId);
     if (name === 'send-campaign') return campaignsApi.processCampaign((data as Jobs['send-campaign']).campaignId);
+    if (name === 'check-domain') return void (await domainsApi.checkDomain((data as Jobs['check-domain']).domainId, { reschedule: true }));
   }
 
   return {
     ...createAudience(db),
     ...campaignsApi,
+    ...domainsApi,
+    reputation,
+    resumeTenant,
     ...createStudio(db),
     createAccountWithApp,
     createApp,

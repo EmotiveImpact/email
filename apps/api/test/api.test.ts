@@ -345,3 +345,27 @@ describe('embedded studio', () => {
   });
 });
 
+describe('sending domains', () => {
+  it('sets up a domain from the app and through the API', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    const added = (await (await app('POST', `${base}/domains`, { domain: 'lindenstudio.co.uk', localPart: 'News' })).json()) as { id: string; status: string; records: unknown[]; dmarcRecord: { name: string } };
+    expect(added).toMatchObject({ status: 'pending', dmarcRecord: { name: '_dmarc.lindenstudio.co.uk' } });
+    expect(added.records).toHaveLength(3);
+    const sending = (await (await app('GET', `${base}/sending`)).json()) as { domains: unknown[]; sender: { from: string }; reputation: { sent: number } };
+    expect(sending.domains).toHaveLength(1);
+    // Local work sends from any address; production only from verified domains.
+    expect(sending.sender.from).toBe('Linden Studio <news@lindenstudio.co.uk>');
+    expect((await app('POST', `${base}/domains/${added.id}/check`)).status).toBe(200);
+
+    const viaApi = await ctx.call('POST', '/v1/tenants/linden/domains', { domain: 'linden.test' });
+    expect(viaApi.status).toBe(201);
+    const listed = (await (await ctx.call('GET', '/v1/tenants/linden/domains')).json()) as { domain: string; status: string }[];
+    expect(listed.map((d) => d.domain).sort()).toEqual(['linden.test', 'lindenstudio.co.uk']);
+    const id = ((await viaApi.json()) as { id: string }).id;
+    expect(await (await ctx.call('POST', `/v1/tenants/linden/domains/${id}/check`)).json()).toMatchObject({ status: 'verified' });
+    expect((await ctx.call('DELETE', `/v1/tenants/linden/domains/${id}`)).status).toBe(204);
+  });
+});
+

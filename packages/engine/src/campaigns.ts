@@ -27,7 +27,8 @@ import { PlatformError } from './types.ts';
 export type CampaignDeps = {
   db: Db;
   queue: Queue;
-  defaultFrom: string;
+  /** Who a business's email comes from (see domains.ts). */
+  senderFor: (tenant: typeof tenants.$inferSelect) => Promise<{ from: string; replyTo: string | null; own: boolean }>;
   /** Emails per second this platform may send (the SES account's rate, shared by everyone). */
   sendRate: number;
 };
@@ -43,10 +44,7 @@ export function parseContent(raw: unknown) {
   return result.data;
 }
 
-const fromFor = (tenant: typeof tenants.$inferSelect, fallback: string) =>
-  `${tenant.name.replace(/["<>]/g, '')} <${tenant.fromEmail ?? fallback}>`;
-
-export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDeps) {
+export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps) {
   async function tenantById(tenantId: string) {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) throw new PlatformError('not_found', 'No such business.', 404);
@@ -199,7 +197,7 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
         ),
       );
 
-    const from = fromFor(tenant, defaultFrom);
+    const { from, replyTo } = await senderFor(tenant);
     const start = Date.now();
     let index = 0;
     for (let i = 0; i < people.length; i += 500) {
@@ -212,7 +210,7 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
           stream: 'marketing' as const,
           to: p.email,
           from,
-          replyTo: tenant.replyTo,
+          replyTo,
           subject: fillMergeTags(campaign.subject, values, { html: false }),
           html: fillMergeTags(html, values),
           text: fillMergeTags(text, values, { html: false }),
@@ -245,6 +243,7 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new PlatformError('invalid_request', 'That email address does not look right.', 422);
     const { html, text } = await renderEmail(parseContent(campaign.content), themeFromBrand(tenant.name, tenant.brand));
     const values = { first_name: 'Ama', last_name: 'Mensah', email: to, business_name: tenant.name };
+    const sender = await senderFor(tenant);
     const [row] = await db
       .insert(messages)
       .values({
@@ -252,8 +251,8 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
         tenantId,
         stream: 'transactional',
         to: to.toLowerCase(),
-        from: fromFor(tenant, defaultFrom),
-        replyTo: tenant.replyTo,
+        from: sender.from,
+        replyTo: sender.replyTo,
         subject: `[Test] ${fillMergeTags(campaign.subject || campaign.name, values, { html: false })}`,
         html: fillMergeTags(html, values),
         text: fillMergeTags(text, values, { html: false }),
@@ -310,7 +309,14 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
       campaign.status === 'draft' ? readiness(campaign) : Promise.resolve({ problems: [] as string[], audience: null }),
       campaignStats([campaign.id]),
     ]);
-    return { ...campaign, problems: found, audience, stats: campaign.status === 'sent' || campaign.status === 'sending' ? stats.get(campaign.id)! : null };
+    const sender = await senderFor(await tenantById(tenantId));
+    return {
+      ...campaign,
+      problems: found,
+      audience,
+      sender: { from: sender.from, own: sender.own },
+      stats: campaign.status === 'sent' || campaign.status === 'sending' ? stats.get(campaign.id)! : null,
+    };
   }
 
   /** The email as it will look, for the editor's preview. */

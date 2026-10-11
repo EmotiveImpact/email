@@ -78,7 +78,8 @@ To try it locally, run `SALEANE_API_KEY=<key from db:seed> pnpm demo:host` and o
 1. Verify the sending domain in SES (eu-west-2) and create a configuration set, `platform-events`.
 2. Add an event destination to the set: SNS topic, events Send, Delivery, Bounce, Complaint, Reject, Delivery delay, Rendering failure, Open and Click. Open and click tracking also needs a custom tracking domain on the set (or SES's default one).
 3. Set `SES_SEND_RATE` to the account's maximum send rate; campaigns pace themselves to it.
-4. Subscribe `https://<api>/ses/events` to the topic over HTTPS. The API confirms the subscription itself. Set `SES_TOPIC_ARN` to only accept that topic.
+4. Set `AWS_ACCOUNT_ID` so each business's domain is linked to its own SES tenant. Businesses verify their domains on the Sending domain screen (or partners use `POST /v1/tenants/:id/domains`); until then they send from `DEFAULT_FROM` under their own name.
+5. Subscribe `https://<api>/ses/events` to the topic over HTTPS. The API confirms the subscription itself. Set `SES_TOPIC_ARN` to only accept that topic.
 
 ## Tests
 
