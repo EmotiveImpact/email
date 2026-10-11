@@ -5,9 +5,10 @@
  * The embedded studio uses the same endpoints with a studio session token instead of a sign-in
  * cookie. That session reaches one business only, and none of the account-level settings.
  */
-import { apps, eq, members, messages, tenants, type Db } from '@platform/db';
-import { parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
+import { apps, ASSET_KINDS, eq, members, messages, tenants, type AssetKind, type Db } from '@platform/db';
+import { MAX_ASSET_BYTES, parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import type { Auth } from './auth.ts';
 
@@ -51,6 +52,10 @@ export function publicMessage(m: typeof messages.$inferSelect) {
     sentAt: m.sentAt,
   };
 }
+
+const tooLarge = (): never => {
+  throw new PlatformError('too_large', 'Pictures can be up to 5 MB. Try a smaller or more compressed file.', 413);
+};
 
 const json = async (c: { req: { json: () => Promise<unknown> } }) => {
   try {
@@ -405,6 +410,53 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   r.post('/tenants/:id/flows/:flowId/preview', async (c) => {
     const tenant = await tenantOf(c);
     return c.json(await engine.previewFlow(tenant.id, c.req.param('flowId'), (await json(c)).content));
+  });
+
+  // ---------------------------------------------------------------- pictures
+
+  /** The library, with what the image provider allows today. */
+  r.get('/tenants/:id/assets', async (c) => {
+    const tenant = await tenantOf(c);
+    const kind = c.req.query('kind');
+    if (kind && !ASSET_KINDS.includes(kind as AssetKind)) throw new PlatformError('invalid_request', `kind must be one of ${ASSET_KINDS.join(', ')}.`, 422);
+    const [items, images] = await Promise.all([engine.listAssets(tenant.id, kind as AssetKind | undefined), engine.imageSettings(tenant.id)]);
+    return c.json({ assets: items, images });
+  });
+
+  /** An upload: the file itself is the body, its name in ?name=. */
+  r.post('/tenants/:id/assets', bodyLimit({ maxSize: MAX_ASSET_BYTES + 1024, onError: tooLarge }), async (c) => {
+    const tenant = await tenantOf(c);
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    return c.json(await engine.uploadAsset(tenant.id, { data, name: c.req.query('name'), createdBy: c.var.viewer.id }), 201);
+  });
+
+  r.post('/tenants/:id/assets/generate', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.generateImages(tenant.id, await json(c), c.var.viewer.id), 201);
+  });
+
+  r.patch('/tenants/:id/assets/:assetId', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.renameAsset(tenant.id, c.req.param('assetId'), (await json(c)).name));
+  });
+
+  r.delete('/tenants/:id/assets/:assetId', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.deleteAsset(tenant.id, c.req.param('assetId'));
+    return c.body(null, 204);
+  });
+
+  /** Designs carry their layers and the PNG drawn from them (base64), so they can be opened again. */
+  const designLimit = bodyLimit({ maxSize: Math.ceil((MAX_ASSET_BYTES * 4) / 3) + 256 * 1024, onError: tooLarge });
+
+  r.post('/tenants/:id/designs', designLimit, async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.createDesign(tenant.id, await json(c), c.var.viewer.id), 201);
+  });
+
+  r.put('/tenants/:id/designs/:assetId', designLimit, async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.updateDesign(tenant.id, c.req.param('assetId'), await json(c)));
   });
 
   return r;

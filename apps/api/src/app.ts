@@ -217,6 +217,19 @@ export function createApi(options: ApiOptions) {
     return c.html(page('Unsubscribed', `<h1>You are unsubscribed</h1><p>${escapeHtml(email)} will not get news from ${escapeHtml(tenantName)} again.</p>`));
   });
 
+  // ------------------------------------------------------------------ pictures in emails
+
+  /** Picture files, when they live in Postgres. Keys change with every version, so cache forever. */
+  api.get('/a/:key', async (c) => {
+    const file = await engine.assetFile(c.req.param('key'));
+    if (!file) return c.text('Not found', 404);
+    return c.body(new Uint8Array(file.data), 200, {
+      'content-type': file.contentType,
+      'cache-control': 'public, max-age=31536000, immutable',
+      'x-content-type-options': 'nosniff',
+    });
+  });
+
   // ------------------------------------------------------------------ sign-in and the web app
 
   api.on(['GET', 'POST'], '/auth/*', (c) => options.auth.handler(c.req.raw));

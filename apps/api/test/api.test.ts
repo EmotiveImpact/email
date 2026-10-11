@@ -1,4 +1,4 @@
-import type { LogTransport } from '@platform/engine';
+import { encodePng, type LogTransport } from '@platform/engine';
 import { setup } from '@platform/engine/testing';
 import { Webhook } from 'standardwebhooks';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -171,8 +171,8 @@ async function signedIn(ctx: Awaited<ReturnType<typeof start>>, options: { joinA
   return (method: string, path: string, body?: unknown) =>
     ctx.api.request(path, {
       method,
-      headers: { cookie, origin: WEB, 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: { cookie, origin: WEB, 'content-type': body instanceof Uint8Array ? 'image/png' : 'application/json' },
+      body: body === undefined ? undefined : body instanceof Uint8Array ? body : JSON.stringify(body),
     });
 }
 
@@ -416,5 +416,41 @@ describe('the diary and flows', () => {
     const detail = (await (await app('GET', `${base}/contacts/${contact.contacts[0]!.id}`)).json()) as { rhythm: { gapDays: number }; appointments: unknown[]; messages: { subject: string }[] };
     expect(detail).toMatchObject({ rhythm: { gapDays: 28 }, messages: [{ subject: 'Time for your next Balayage?' }] });
     expect(detail.appointments).toHaveLength(3);
+  });
+});
+
+describe('pictures', () => {
+  it('uploads, generates and saves designs, and serves the files publicly', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    const png = encodePng(8, 4, new Uint8Array(8 * 4 * 3).fill(120));
+
+    const uploaded = await app('POST', `${base}/assets?name=salon.png`, png);
+    expect(uploaded.status).toBe(201);
+    const asset = (await uploaded.json()) as { id: string; url: string; name: string };
+    expect(asset.name).toBe('salon');
+
+    const file = await ctx.api.request(new URL(asset.url).pathname);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('content-type')).toBe('image/png');
+    expect(file.headers.get('cache-control')).toContain('immutable');
+    expect((await ctx.api.request('/a/ast_nope-00000000.png')).status).toBe(404);
+
+    expect((await app('POST', `${base}/assets`, new Uint8Array(6 * 1024 * 1024))).status).toBe(413);
+
+    const generated = await app('POST', `${base}/assets/generate`, { prompt: 'A chair by a window', count: 1 });
+    expect(generated.status).toBe(201);
+    const design = { width: 600, height: 300, background: '#2D2470', layers: [] };
+    const saved = await app('POST', `${base}/designs`, { name: 'Header', design, png: Buffer.from(png).toString('base64') });
+    expect(saved.status).toBe(201);
+
+    const library = (await (await app('GET', `${base}/assets`)).json()) as { assets: { kind: string }[]; images: { provider: string; left: number } };
+    expect(library.assets.map((a) => a.kind).sort()).toEqual(['design', 'generated', 'upload']);
+    expect(library.images).toMatchObject({ provider: 'sample', left: 39 });
+    expect((await (await app('GET', `${base}/assets?kind=design`)).json()) as { assets: unknown[] }).toMatchObject({ assets: [{ kind: 'design' }] });
+
+    expect((await app('DELETE', `${base}/assets/${asset.id}`)).status).toBe(204);
+    expect((await ctx.api.request(new URL(asset.url).pathname)).status).toBe(200);
   });
 });
