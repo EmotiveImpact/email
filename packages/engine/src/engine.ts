@@ -1,0 +1,634 @@
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  accounts,
+  apiKeys,
+  apps,
+  appEvents,
+  consents,
+  contacts,
+  messageEvents,
+  messages,
+  newId,
+  suppressions,
+  tenants,
+  webhookDeliveries,
+  webhookEndpoints,
+  type Brand,
+  type Db,
+  type MessageStatus,
+} from '@platform/db';
+import { and, desc, eq, inArray, isNull, or, sql } from '@platform/db';
+import { Webhook } from 'standardwebhooks';
+import { z } from 'zod';
+import type { JobName, Jobs, Queue } from './queue.ts';
+import { parseSesEvent, type SesEvent } from './ses-events.ts';
+import { PermanentSendError, PlatformError, type Transport } from './types.ts';
+
+export type EngineConfig = {
+  /** Public base URL of the API, used for unsubscribe links. */
+  publicUrl: string;
+  /** Secret for signing unsubscribe tokens. */
+  signingSecret: string;
+  /** Used when a tenant has no from address of its own. */
+  defaultFrom: string;
+};
+
+type Tenant = typeof tenants.$inferSelect;
+type Message = typeof messages.$inferSelect;
+type App = typeof apps.$inferSelect;
+
+const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email());
+
+export const SendEmailInput = z
+  .object({
+    tenant: z.string().min(1),
+    stream: z.enum(['transactional', 'marketing']).default('transactional'),
+    to: email,
+    from: z.string().trim().min(3).optional(),
+    replyTo: email.optional(),
+    subject: z.string().trim().min(1).max(998),
+    html: z.string().max(5_000_000).optional(),
+    text: z.string().max(1_000_000).optional(),
+    tags: z.record(z.string().max(64), z.string().max(256)).default({}),
+    idempotencyKey: z.string().min(1).max(256).optional(),
+  })
+  .refine((v) => v.html || v.text, { message: 'Give html, text or both.' });
+export type SendEmailInput = z.input<typeof SendEmailInput>;
+
+export const UpsertContactInput = z.object({
+  tenant: z.string().min(1),
+  email,
+  externalId: z.string().max(256).optional(),
+  firstName: z.string().max(256).optional(),
+  lastName: z.string().max(256).optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
+  consent: z
+    .object({
+      marketing: z.enum(['granted', 'withdrawn']),
+      source: z.string().min(1).max(256),
+      recordedAt: z.coerce.date().optional(),
+    })
+    .optional(),
+});
+export type UpsertContactInput = z.input<typeof UpsertContactInput>;
+
+export const RecordEventInput = z.object({
+  tenant: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9_.-]+$/i, 'Use letters, numbers, dots, dashes and underscores.'),
+  email: email.optional(),
+  contactExternalId: z.string().max(256).optional(),
+  properties: z.record(z.string(), z.unknown()).default({}),
+  occurredAt: z.coerce.date().optional(),
+});
+export type RecordEventInput = z.input<typeof RecordEventInput>;
+
+export const UpsertTenantInput = z.object({
+  name: z.string().trim().min(1).max(256),
+  fromEmail: z.string().trim().min(3).optional(),
+  replyTo: email.optional(),
+  sesTenant: z.string().max(64).optional(),
+  brand: z
+    .object({
+      accent: z
+        .string()
+        .regex(/^#[0-9a-f]{6}$/i)
+        .optional(),
+      rail: z.enum(['light', 'pigment']).optional(),
+      headingFont: z.enum(['cal-sans', 'geist', 'serif']).optional(),
+      logoUrl: z.url().optional(),
+    })
+    .optional(),
+});
+export type UpsertTenantInput = z.input<typeof UpsertTenantInput>;
+
+/** Webhook event types an app can subscribe to. */
+export const WEBHOOK_EVENTS = [
+  'email.sent',
+  'email.delivered',
+  'email.delivery_delayed',
+  'email.bounced',
+  'email.complained',
+  'email.rejected',
+  'email.failed',
+  'email.opened',
+  'email.clicked',
+  'contact.unsubscribed',
+] as const;
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+
+// Statuses only move forward, so a late "delivered" never hides an earlier bounce.
+const RANK: Record<MessageStatus, number> = {
+  queued: 0,
+  sending: 1,
+  sent: 2,
+  delivery_delayed: 3,
+  delivered: 4,
+  bounced: 5,
+  complained: 5,
+  rejected: 5,
+  failed: 5,
+  suppressed: 5,
+};
+
+const SES_STATUS: Partial<Record<SesEvent['type'], MessageStatus>> = {
+  delivery: 'delivered',
+  delivery_delay: 'delivery_delayed',
+  bounce: 'bounced',
+  complaint: 'complained',
+  reject: 'rejected',
+  rendering_failure: 'failed',
+};
+
+const SES_WEBHOOK: Partial<Record<SesEvent['type'], WebhookEvent>> = {
+  delivery: 'email.delivered',
+  delivery_delay: 'email.delivery_delayed',
+  bounce: 'email.bounced',
+  complaint: 'email.complained',
+  reject: 'email.rejected',
+  rendering_failure: 'email.failed',
+  open: 'email.opened',
+  click: 'email.clicked',
+};
+
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+
+export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const result = schema.safeParse(input);
+  if (!result.success) {
+    const issue = result.error.issues[0]!;
+    const where = issue.path.length ? `${issue.path.join('.')}: ` : '';
+    throw new PlatformError('invalid_request', `${where}${issue.message}`, 422);
+  }
+  return result.data;
+}
+
+export function createEngine(deps: { db: Db; transport: Transport; queue: Queue; config: EngineConfig; fetch?: typeof fetch }) {
+  const { db, transport, queue, config } = deps;
+  const doFetch = deps.fetch ?? fetch;
+
+  // ---------------------------------------------------------------- accounts, apps and keys
+
+  async function createAccountWithApp(input: { account: string; app: string }) {
+    const accountId = newId('acc');
+    const appId = newId('app');
+    await db.transaction(async (tx) => {
+      await tx.insert(accounts).values({ id: accountId, name: input.account });
+      await tx.insert(apps).values({ id: appId, accountId, name: input.app });
+    });
+    return { accountId, appId };
+  }
+
+  /** Creates an API key. The full key is returned once and never stored. */
+  async function createApiKey(appId: string, name: string) {
+    const key = `pk_live_${randomBytes(24).toString('base64url')}`;
+    const id = newId('key');
+    await db.insert(apiKeys).values({ id, appId, name, prefix: key.slice(0, 12), hash: sha256(key) });
+    return { id, key };
+  }
+
+  async function authenticate(key: string | undefined): Promise<App> {
+    if (!key) throw new PlatformError('unauthorised', 'Send your API key as a Bearer token.', 401);
+    const [row] = await db
+      .select({ app: apps, keyId: apiKeys.id })
+      .from(apiKeys)
+      .innerJoin(apps, eq(apps.id, apiKeys.appId))
+      .where(and(eq(apiKeys.hash, sha256(key)), isNull(apiKeys.revokedAt)));
+    if (!row) throw new PlatformError('unauthorised', 'That API key is not valid.', 401);
+    void db.update(apiKeys).set({ lastUsedAt: new Date() }).where(eq(apiKeys.id, row.keyId)).catch(() => {});
+    return row.app;
+  }
+
+  // ---------------------------------------------------------------- tenants
+
+  async function upsertTenant(appId: string, externalId: string, raw: UpsertTenantInput) {
+    const input = parse(UpsertTenantInput, raw);
+    const values = {
+      name: input.name,
+      fromEmail: input.fromEmail ?? null,
+      replyTo: input.replyTo ?? null,
+      sesTenant: input.sesTenant ?? null,
+      brand: (input.brand ?? {}) as Brand,
+    };
+    const [row] = await db
+      .insert(tenants)
+      .values({ id: newId('ten'), appId, externalId, ...values })
+      .onConflictDoUpdate({ target: [tenants.appId, tenants.externalId], set: values })
+      .returning();
+    return row!;
+  }
+
+  async function getTenant(appId: string, externalId: string): Promise<Tenant> {
+    const [row] = await db
+      .select()
+      .from(tenants)
+      .where(and(eq(tenants.appId, appId), eq(tenants.externalId, externalId)));
+    if (!row) throw new PlatformError('tenant_not_found', `No tenant "${externalId}". Create it with PUT /v1/tenants/${externalId}.`, 404);
+    return row;
+  }
+
+  // ---------------------------------------------------------------- suppression and consent
+
+  /** Why this address must not receive this stream from this tenant, or null if it may. */
+  async function blockedReason(tenantId: string, to: string, stream: 'transactional' | 'marketing') {
+    const rows = await db
+      .select({ reason: suppressions.reason, stream: suppressions.stream })
+      .from(suppressions)
+      .where(and(eq(suppressions.email, to), or(eq(suppressions.scope, 'global'), eq(suppressions.scope, tenantId))));
+    const hit = rows.find((r) => r.stream === 'all' || stream === 'marketing');
+    if (hit) return hit.reason;
+    if (stream === 'marketing') {
+      const [contact] = await db
+        .select({ consent: contacts.marketingConsent })
+        .from(contacts)
+        .where(and(eq(contacts.tenantId, tenantId), eq(contacts.email, to)));
+      if (contact?.consent !== 'granted') return 'no_marketing_consent';
+    }
+    return null;
+  }
+
+  async function suppress(scope: string, address: string, reason: 'hard_bounce' | 'complaint' | 'unsubscribe' | 'manual', stream: 'all' | 'marketing') {
+    await db
+      .insert(suppressions)
+      .values({ id: newId('sup'), scope, email: address, reason, stream })
+      .onConflictDoNothing();
+  }
+
+  async function setConsent(tenantId: string, contactId: string, status: 'granted' | 'withdrawn', source: string, recordedAt = new Date()) {
+    await db.insert(consents).values({ id: newId('con'), tenantId, contactId, status, source, recordedAt });
+    await db.update(contacts).set({ marketingConsent: status, updatedAt: new Date() }).where(eq(contacts.id, contactId));
+  }
+
+  // ---------------------------------------------------------------- contacts and app events
+
+  async function upsertContact(app: App, raw: UpsertContactInput) {
+    const input = parse(UpsertContactInput, raw);
+    const tenant = await getTenant(app.id, input.tenant);
+    const set = {
+      ...(input.externalId !== undefined && { externalId: input.externalId }),
+      ...(input.firstName !== undefined && { firstName: input.firstName }),
+      ...(input.lastName !== undefined && { lastName: input.lastName }),
+      ...(input.attributes !== undefined && { attributes: input.attributes }),
+      updatedAt: new Date(),
+    };
+    const [contact] = await db
+      .insert(contacts)
+      .values({ id: newId('ctc'), tenantId: tenant.id, email: input.email, ...set })
+      .onConflictDoUpdate({ target: [contacts.tenantId, contacts.email], set })
+      .returning();
+    if (input.consent) {
+      await setConsent(tenant.id, contact!.id, input.consent.marketing, input.consent.source, input.consent.recordedAt);
+      if (input.consent.marketing === 'granted') {
+        // A fresh, recorded opt-in lifts an earlier unsubscribe for this tenant.
+        await db
+          .delete(suppressions)
+          .where(and(eq(suppressions.scope, tenant.id), eq(suppressions.email, input.email), eq(suppressions.reason, 'unsubscribe')));
+      }
+    }
+    const [fresh] = await db.select().from(contacts).where(eq(contacts.id, contact!.id));
+    return fresh!;
+  }
+
+  async function recordEvent(app: App, raw: RecordEventInput) {
+    const input = parse(RecordEventInput, raw);
+    const tenant = await getTenant(app.id, input.tenant);
+    let contactId: string | null = null;
+    if (input.email || input.contactExternalId) {
+      const [contact] = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.tenantId, tenant.id),
+            input.email ? eq(contacts.email, input.email) : eq(contacts.externalId, input.contactExternalId!),
+          ),
+        );
+      contactId = contact?.id ?? null;
+    }
+    const [row] = await db
+      .insert(appEvents)
+      .values({
+        id: newId('evt'),
+        tenantId: tenant.id,
+        contactId,
+        name: input.name,
+        properties: input.properties,
+        occurredAt: input.occurredAt ?? new Date(),
+      })
+      .returning();
+    return row!;
+  }
+
+  // ---------------------------------------------------------------- sending
+
+  function unsubscribeToken(messageId: string) {
+    const mac = createHmac('sha256', config.signingSecret).update(`unsub:${messageId}`).digest('base64url').slice(0, 32);
+    return `${messageId}.${mac}`;
+  }
+
+  function verifyUnsubscribeToken(token: string): string | null {
+    const [messageId, mac] = token.split('.');
+    if (!messageId || !mac) return null;
+    const expected = unsubscribeToken(messageId).split('.')[1]!;
+    const a = Buffer.from(mac);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b) ? messageId : null;
+  }
+
+  /**
+   * Accepts an email for sending. It is stored and queued straight away; the queue sends it.
+   * Suppressed addresses are stored with status "suppressed" and never sent, so callers can see why.
+   */
+  async function sendEmail(app: App, raw: SendEmailInput): Promise<Message> {
+    const input = parse(SendEmailInput, raw);
+    const tenant = await getTenant(app.id, input.tenant);
+    if (tenant.status === 'paused') throw new PlatformError('tenant_paused', 'Sending is paused for this tenant.', 403);
+
+    if (input.idempotencyKey) {
+      const [existing] = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.tenantId, tenant.id), eq(messages.idempotencyKey, input.idempotencyKey)));
+      if (existing) return existing;
+    }
+
+    const blocked = await blockedReason(tenant.id, input.to, input.stream);
+    const id = newId('msg');
+    const [message] = await db
+      .insert(messages)
+      .values({
+        id,
+        tenantId: tenant.id,
+        stream: input.stream,
+        idempotencyKey: input.idempotencyKey ?? null,
+        to: input.to,
+        from: input.from ?? tenant.fromEmail ?? config.defaultFrom,
+        replyTo: input.replyTo ?? tenant.replyTo,
+        subject: input.subject,
+        html: input.html ?? null,
+        text: input.text ?? null,
+        tags: input.tags,
+        status: blocked ? 'suppressed' : 'queued',
+        error: blocked,
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    if (!message) {
+      // Lost a race with the same idempotency key: return the winner.
+      const [existing] = await db
+        .select()
+        .from(messages)
+        .where(and(eq(messages.tenantId, tenant.id), eq(messages.idempotencyKey, input.idempotencyKey!)));
+      return existing!;
+    }
+    if (!blocked) await queue.enqueue('send-message', { messageId: id });
+    return message;
+  }
+
+  /** Queue worker: hands one message to the transport. Safe to run twice for the same message. */
+  async function processSend(messageId: string) {
+    const [claimed] = await db
+      .update(messages)
+      .set({ status: 'sending', attempts: sql`${messages.attempts} + 1`, updatedAt: new Date() })
+      .where(and(eq(messages.id, messageId), inArray(messages.status, ['queued', 'sending'])))
+      .returning();
+    if (!claimed) return; // already sent, or suppressed meanwhile
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, claimed.tenantId));
+
+    const headers: Record<string, string> = { 'X-Platform-Message-Id': claimed.id };
+    if (claimed.stream === 'marketing') {
+      const url = `${config.publicUrl}/u/${unsubscribeToken(claimed.id)}`;
+      headers['List-Unsubscribe'] = `<${url}>`;
+      headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+    }
+
+    try {
+      const { providerMessageId } = await transport.send({
+        messageId: claimed.id,
+        from: claimed.from,
+        to: claimed.to,
+        replyTo: claimed.replyTo,
+        subject: claimed.subject,
+        html: claimed.html,
+        text: claimed.text,
+        headers,
+        sesTenant: tenant?.sesTenant,
+        tags: { ...claimed.tags, stream: claimed.stream },
+      });
+      await db
+        .update(messages)
+        .set({ status: 'sent', providerMessageId, sentAt: new Date(), updatedAt: new Date(), error: null })
+        .where(and(eq(messages.id, claimed.id), eq(messages.status, 'sending')));
+      await emit(claimed.tenantId, 'email.sent', claimed.id, {});
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (error instanceof PermanentSendError) {
+        await db.update(messages).set({ status: 'failed', error: reason, updatedAt: new Date() }).where(eq(messages.id, claimed.id));
+        await emit(claimed.tenantId, 'email.failed', claimed.id, { reason });
+        return;
+      }
+      await db.update(messages).set({ status: 'queued', error: reason, updatedAt: new Date() }).where(eq(messages.id, claimed.id));
+      throw error; // let the queue retry with backoff
+    }
+  }
+
+  // ---------------------------------------------------------------- SES events
+
+  /** Applies one SES event (from SNS) to the message it belongs to. Unknown messages are ignored. */
+  async function ingestSesEvent(body: unknown) {
+    const event = parseSesEvent(body);
+    if (!event) return { applied: false as const, reason: 'not an SES event' };
+    const [message] = await db
+      .select()
+      .from(messages)
+      .where(
+        event.platformMessageId
+          ? or(eq(messages.providerMessageId, event.providerMessageId), eq(messages.id, event.platformMessageId))
+          : eq(messages.providerMessageId, event.providerMessageId),
+      );
+    if (!message) return { applied: false as const, reason: 'unknown message' };
+
+    await db.insert(messageEvents).values({
+      id: newId('mev'),
+      messageId: message.id,
+      type: event.type,
+      occurredAt: event.occurredAt,
+      detail: event.detail,
+    });
+
+    const next = SES_STATUS[event.type];
+    if (next && RANK[next] > RANK[message.status]) {
+      await db.update(messages).set({ status: next, updatedAt: new Date() }).where(eq(messages.id, message.id));
+    }
+
+    if (event.type === 'bounce' && event.permanent) {
+      await suppress('global', message.to, 'hard_bounce', 'all');
+    }
+    if (event.type === 'complaint') {
+      // Complaints stop marketing from this tenant; booking reminders and receipts still go.
+      await suppress(message.tenantId, message.to, 'complaint', 'marketing');
+      const [contact] = await db
+        .select({ id: contacts.id })
+        .from(contacts)
+        .where(and(eq(contacts.tenantId, message.tenantId), eq(contacts.email, message.to)));
+      if (contact) await setConsent(message.tenantId, contact.id, 'withdrawn', 'complaint');
+    }
+
+    const webhook = SES_WEBHOOK[event.type];
+    if (webhook) await emit(message.tenantId, webhook, message.id, event.detail);
+    return { applied: true as const, messageId: message.id, type: event.type };
+  }
+
+  // ---------------------------------------------------------------- unsubscribe
+
+  async function unsubscribe(token: string) {
+    const messageId = verifyUnsubscribeToken(token);
+    if (!messageId) throw new PlatformError('invalid_token', 'This unsubscribe link is not valid.', 404);
+    const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
+    if (!message) throw new PlatformError('invalid_token', 'This unsubscribe link is not valid.', 404);
+    await suppress(message.tenantId, message.to, 'unsubscribe', 'marketing');
+    const [contact] = await db
+      .select({ id: contacts.id, consent: contacts.marketingConsent })
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, message.tenantId), eq(contacts.email, message.to)));
+    if (contact && contact.consent !== 'withdrawn') await setConsent(message.tenantId, contact.id, 'withdrawn', 'unsubscribe-link');
+    await emit(message.tenantId, 'contact.unsubscribed', message.id, {});
+    const [tenant] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, message.tenantId));
+    return { email: message.to, tenantName: tenant?.name ?? '' };
+  }
+
+  // ---------------------------------------------------------------- outbound webhooks
+
+  async function addWebhookEndpoint(appId: string, url: string, eventTypes: WebhookEvent[] = []) {
+    const parsed = parse(z.url({ protocol: /^https?$/ }), url);
+    const secret = `whsec_${randomBytes(24).toString('base64')}`;
+    const id = newId('whe');
+    await db.insert(webhookEndpoints).values({ id, appId, url: parsed, secret, eventTypes });
+    return { id, secret };
+  }
+
+  /** Records an event for every endpoint of the tenant's app that wants it, and queues delivery. */
+  async function emit(tenantId: string, type: WebhookEvent, messageId: string | null, detail: Record<string, unknown>) {
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
+    if (!tenant) return;
+    const endpoints = await db
+      .select()
+      .from(webhookEndpoints)
+      .where(and(eq(webhookEndpoints.appId, tenant.appId), isNull(webhookEndpoints.disabledAt)));
+    const wanted = endpoints.filter((e) => e.eventTypes.length === 0 || e.eventTypes.includes(type));
+    if (!wanted.length) return;
+    let message: Message | undefined;
+    if (messageId) [message] = await db.select().from(messages).where(eq(messages.id, messageId));
+    const payload = {
+      type,
+      createdAt: new Date().toISOString(),
+      data: {
+        tenant: tenant.externalId,
+        ...(message && {
+          emailId: message.id,
+          to: message.to,
+          subject: message.subject,
+          stream: message.stream,
+          tags: message.tags,
+        }),
+        ...detail,
+      },
+    };
+    for (const endpoint of wanted) {
+      const id = newId('whd');
+      await db.insert(webhookDeliveries).values({ id, endpointId: endpoint.id, eventType: type, payload });
+      await queue.enqueue('deliver-webhook', { deliveryId: id });
+    }
+  }
+
+  /** Queue worker: posts one signed webhook (Standard Webhooks format). Throws to retry. */
+  async function processWebhook(deliveryId: string) {
+    const [row] = await db
+      .select({ delivery: webhookDeliveries, endpoint: webhookEndpoints })
+      .from(webhookDeliveries)
+      .innerJoin(webhookEndpoints, eq(webhookEndpoints.id, webhookDeliveries.endpointId))
+      .where(eq(webhookDeliveries.id, deliveryId));
+    if (!row || row.delivery.status === 'delivered') return;
+    const body = JSON.stringify(row.delivery.payload);
+    const timestamp = new Date();
+    const signature = new Webhook(row.endpoint.secret).sign(deliveryId, timestamp, body);
+    let failure: string | null = null;
+    try {
+      const response = await doFetch(row.endpoint.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-id': deliveryId,
+          'webhook-timestamp': String(Math.floor(timestamp.getTime() / 1000)),
+          'webhook-signature': signature,
+        },
+        body,
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) failure = `HTTP ${response.status}`;
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    }
+    await db
+      .update(webhookDeliveries)
+      .set({
+        attempts: sql`${webhookDeliveries.attempts} + 1`,
+        status: failure ? 'failed' : 'delivered',
+        lastError: failure,
+        deliveredAt: failure ? null : new Date(),
+      })
+      .where(eq(webhookDeliveries.id, deliveryId));
+    if (failure) throw new Error(`Webhook ${deliveryId} failed: ${failure}`);
+  }
+
+  // ---------------------------------------------------------------- reads for the app
+
+  async function listMessages(tenantId: string, limit = 50) {
+    return db.select().from(messages).where(eq(messages.tenantId, tenantId)).orderBy(desc(messages.createdAt)).limit(limit);
+  }
+
+  async function messageStats(tenantId: string, since: Date) {
+    const rows = await db
+      .select({ status: messages.status, count: sql<number>`count(*)::int` })
+      .from(messages)
+      .where(and(eq(messages.tenantId, tenantId), sql`${messages.createdAt} >= ${since}`))
+      .groupBy(messages.status);
+    return Object.fromEntries(rows.map((r) => [r.status, r.count])) as Partial<Record<MessageStatus, number>>;
+  }
+
+  /** Runs one queued job. Wire this to the queue's worker. */
+  async function runJob<N extends JobName>(name: N, data: Jobs[N]) {
+    if (name === 'send-message') return processSend((data as Jobs['send-message']).messageId);
+    if (name === 'deliver-webhook') return processWebhook((data as Jobs['deliver-webhook']).deliveryId);
+  }
+
+  return {
+    createAccountWithApp,
+    createApiKey,
+    authenticate,
+    upsertTenant,
+    getTenant,
+    upsertContact,
+    recordEvent,
+    sendEmail,
+    processSend,
+    ingestSesEvent,
+    unsubscribe,
+    unsubscribeToken,
+    addWebhookEndpoint,
+    processWebhook,
+    listMessages,
+    messageStats,
+    runJob,
+  };
+}
+
+export type Engine = ReturnType<typeof createEngine>;

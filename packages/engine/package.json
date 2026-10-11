@@ -1,0 +1,28 @@
+{
+  "name": "@platform/engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "3.1149.0",
+    "@platform/db": "workspace:*",
+    "pg": "8.23.1",
+    "pg-boss": "12.37.1",
+    "standardwebhooks": "1.1.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pg": "8.23.1",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}
