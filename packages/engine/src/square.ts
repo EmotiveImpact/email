@@ -169,8 +169,17 @@ export class SquareClient {
     return expected.length === given.length && timingSafeEqual(expected, given);
   }
 
+  /** A network failure or timeout reads as Square being out of reach, not as our own error. */
+  private async reach(url: string, init: RequestInit) {
+    try {
+      return await this.doFetch(url, init);
+    } catch {
+      throw new PlatformError('square_unreachable', 'Square could not be reached just now. Try again in a few minutes.', 502);
+    }
+  }
+
   private async call<T>(method: string, path: string, token: string | null, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-    const response = await this.doFetch(`${this.base}${path}`, {
+    const response = await this.reach(`${this.base}${path}`, {
       method,
       headers: {
         'square-version': SQUARE_VERSION,

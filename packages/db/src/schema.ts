@@ -531,8 +531,8 @@ export const diaryConnections = pgTable(
     tenantId: text('tenant_id')
       .notNull()
       .references(() => tenants.id),
-    provider: text('provider', { enum: ['square'] }).notNull(),
-    /** The provider's id for the business (Square's merchant id). */
+    provider: text('provider', { enum: ['square', 'phorest'] }).notNull(),
+    /** The provider's id for the business (Square's merchant id, Phorest's business id). */
     accountId: text('account_id').notNull(),
     locationId: text('location_id'),
     locationName: text('location_name'),
@@ -541,6 +541,8 @@ export const diaryConnections = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     /** The service whose free times stand for the diary's free time. Default: the most booked one. */
     serviceId: text('service_id'),
+    /** Provider details that are not secret: Phorest's region and the branch's time zone and currency. */
+    options: jsonb('options').$type<{ region?: 'eu' | 'us'; timeZone?: string; currency?: string }>().notNull().default({}),
     /**
      * What the owner confirmed about their clients when connecting: "granted" when they agreed to
      * hear news, as in a spreadsheet import. Clients who unsubscribed in the booking system never are.
