@@ -1,4 +1,4 @@
-import { createApi } from '@platform/api';
+import { createApi, createAuth } from '@platform/api';
 import { setup } from '@platform/engine/testing';
 import { afterEach, expect, it } from 'vitest';
 import { PlatformApiError, PlatformClient, verifyWebhook } from '../src/index.ts';
@@ -16,7 +16,9 @@ it('talks to the API end to end, including webhook verification', async () => {
   }) as unknown as typeof fetch;
   const ctx = await setup({ fetch: hookFetch });
   close = ctx.close;
-  const api = createApi({ engine: ctx.engine, db: ctx.db, webOrigin: 'http://localhost:5173' });
+  const webOrigin = 'http://localhost:5173';
+  const auth = createAuth({ db: ctx.db, engine: ctx.engine, secret: 'test-secret-that-is-long-enough-1234', baseURL: webOrigin, webOrigin });
+  const api = createApi({ engine: ctx.engine, db: ctx.db, webOrigin, auth });
   const client = new PlatformClient({ apiKey: ctx.key, baseUrl: 'https://api.test', fetch: ((url: string, init: RequestInit) => api.request(url, init)) as typeof fetch });
 
   const tenant = await client.tenants.put('caleane-studio', { name: 'Harbour Films', fromEmail: 'hello@harbour.test' });

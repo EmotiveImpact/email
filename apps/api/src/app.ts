@@ -173,3 +173,4 @@ export function createApi(options: ApiOptions) {
 function publicTenant(t: typeof tenants.$inferSelect) {
   return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, brand: t.brand };
 }
+export { createAuth } from './auth.ts';
