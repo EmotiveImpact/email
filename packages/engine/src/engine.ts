@@ -276,7 +276,7 @@ export function createEngine(deps: {
     picturesLeft: billingApi.picturesLeft,
   });
   const onboardingApi = createOnboarding({ db, diary });
-  const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows });
+  const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows, waitingByKind: flowsApi.waitingByKind });
   const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots, sendingProblem: billingApi.sendingProblem });
 
   // ---------------------------------------------------------------- accounts, apps and keys
@@ -820,11 +820,22 @@ export function createEngine(deps: {
 
   // ---------------------------------------------------------------- unsubscribe
 
-  async function unsubscribe(token: string) {
+  async function messageForToken(token: string) {
     const messageId = verifyUnsubscribeToken(token);
-    if (!messageId) throw new PlatformError('invalid_token', 'This unsubscribe link is not valid.', 404);
-    const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
+    const [message] = messageId ? await db.select().from(messages).where(eq(messages.id, messageId)) : [];
     if (!message) throw new PlatformError('invalid_token', 'This unsubscribe link is not valid.', 404);
+    return message;
+  }
+
+  /** Who an unsubscribe link is for, so the page can say which business it stops. Changes nothing. */
+  async function unsubscribeTarget(token: string) {
+    const message = await messageForToken(token);
+    const [tenant] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, message.tenantId));
+    return { email: message.to, tenantName: tenant?.name ?? '' };
+  }
+
+  async function unsubscribe(token: string) {
+    const message = await messageForToken(token);
     await suppress(message.tenantId, message.to, 'unsubscribe', 'marketing');
     const [already] = await db
       .select({ id: messageEvents.id })
@@ -1034,6 +1045,7 @@ export function createEngine(deps: {
     processSend,
     ingestSesEvent,
     unsubscribe,
+    unsubscribeTarget,
     unsubscribeToken,
     hitLimit: limitsApi.hit,
     addWebhookEndpoint,

@@ -302,7 +302,11 @@ function FlowPath({ id }: { id: string }) {
           <Node
             tag="Email"
             tone="ink"
-            title={fill(flow.subject, tenant.name, flow.next.fill ? new Date(`${flow.next.fill.day}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' }) : undefined)}
+            title={fill(flow.subject, tenant.name, {
+              slotDay: flow.next.fill ? new Date(`${flow.next.fill.day}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' }) : undefined,
+              // The first client in line, so the subject reads as they would get it.
+              service: flow.next.people[0]?.lastService ?? undefined,
+            })}
             sub={s.sent ? `${rate(s.opened, s.sent)} opened · ${rate(s.clicked, s.sent)} clicked` : 'Sent between 9am and 7pm your time'}
             to={{ flow: flow.id }}
           />

@@ -8,7 +8,7 @@ import { newBlock } from '@platform/content/blocks';
 import { useQuery } from '@tanstack/react-query';
 import { Braces, CalendarClock, ChevronDown, ChevronUp, Heading, Image, Minus, Monitor, MousePointerClick, MoveVertical, Smartphone, Trash2, Type, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { previewEmail, type Block, type BlockType, type EmailDoc } from '../api.ts';
+import { diaryQuery, previewEmail, type Block, type BlockType, type EmailDoc } from '../api.ts';
 import { Card, Notice, Segmented, cx } from './ui.tsx';
 import { EmailBlocks, ImageBlockSettings } from './image-block.tsx';
 import { useTenant } from './Shell.tsx';
@@ -320,10 +320,19 @@ export function BlockSettings({ block, onChange }: { block: Block; onChange: (b:
             Up to six free times from your diary, each a button that opens your booking page at that time. Filled in when the email goes, so they are
             never out of date. Fill-quiet-days emails show the quiet day's times.
           </span>
+          <SlotsHint />
           <Align value={block.align} onChange={(align) => onChange({ ...block, align })} />
         </>
       );
   }
+}
+
+/** Says plainly when free times cannot show yet, since the preview then shows a booking button. */
+function SlotsHint() {
+  const tenant = useTenant();
+  const { data } = useQuery(diaryQuery(tenant.id));
+  if (!data || data.connected) return null;
+  return <Notice>Your diary is not connected yet, so this shows a “Choose a time” button to your booking page instead. Connect your booking system from Developers to show real times.</Notice>;
 }
 
 /** The email as it will arrive, rendered by the same code that sends it. */
@@ -336,7 +345,7 @@ export function Preview({
   content: EmailDoc;
   subject?: string;
   /** Renders the email; campaigns by default. Flows pass their own, which knows the flow's free times. */
-  render?: (content: EmailDoc) => Promise<{ html: string; slotDay?: string }>;
+  render?: (content: EmailDoc) => Promise<{ html: string; slotDay?: string; service?: string }>;
   renderKey?: string;
 }) {
   const tenant = useTenant();
@@ -349,16 +358,16 @@ export function Preview({
   }, [key]);
   const { data, error } = useQuery({
     queryKey: ['email-preview', tenant.id, renderKey, debounced, tenant.brand],
-    queryFn: (): Promise<{ html: string; slotDay?: string }> => (render ?? ((c: EmailDoc) => previewEmail(tenant.id, c)))(JSON.parse(debounced) as EmailDoc),
+    queryFn: (): Promise<{ html: string; slotDay?: string; service?: string }> => (render ?? ((c: EmailDoc) => previewEmail(tenant.id, c)))(JSON.parse(debounced) as EmailDoc),
     placeholderData: (p) => p,
   });
   return (
     <section aria-label="Email preview" className="dots sticky top-4 flex flex-col gap-3 rounded-[18px] p-4">
       <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-[13px] font-semibold">{fill(subject, tenant.name, data?.slotDay) || 'No subject yet'}</span>
+          <span className="truncate text-[13px] font-semibold">{fill(subject, tenant.name, { slotDay: data?.slotDay, service: data?.service }) || 'No subject yet'}</span>
           <span className="truncate text-xs text-muted">
-            {tenant.name} · {fill(content.preview, tenant.name, data?.slotDay) || 'No preview text'}
+            {tenant.name} · {fill(content.preview, tenant.name, { slotDay: data?.slotDay, service: data?.service }) || 'No preview text'}
           </span>
         </div>
         <Segmented
@@ -392,7 +401,7 @@ export function Preview({
 }
 
 /** Sample values for the subject line preview, matching the ones the preview email uses. */
-export const fill = (s: string | undefined, business: string, slotDay = 'Thursday') =>
+export const fill = (s: string | undefined, business: string, { slotDay = 'Thursday', service = 'appointment' }: { slotDay?: string; service?: string } = {}) =>
   (s ?? '').replace(
     /\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/g,
     (_, key: string) =>
@@ -401,7 +410,7 @@ export const fill = (s: string | undefined, business: string, slotDay = 'Thursda
         last_name: 'Mensah',
         email: 'ama@example.com',
         business_name: business,
-        last_service: 'Balayage',
+        last_service: service,
         weeks_since_visit: '7',
         slot_day: slotDay,
       })[key] ?? '',

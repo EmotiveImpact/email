@@ -71,6 +71,13 @@
       "when": 1791721746040,
       "tag": "0009_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791724594626,
+      "tag": "0010_campaign_gap",
+      "breakpoints": true
     }
   ]
 }

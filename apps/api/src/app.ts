@@ -47,7 +47,7 @@ export type ApiOptions = {
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 function page(title: string, body: string) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#F2F1EE;color:#121214;font:16px/1.5 system-ui,sans-serif}
 main{max-width:420px;margin:24px;padding:32px;background:#fff;border:1px solid #ECEBE8;border-radius:18px}h1{font-size:22px;margin:0 0 8px}p{margin:0 0 20px;color:#55555c}
 button{font:inherit;font-weight:600;padding:10px 18px;border:0;border-radius:999px;background:#121214;color:#fff;cursor:pointer}</style></head>
@@ -242,13 +242,16 @@ export function createApi(options: ApiOptions) {
 
   // ------------------------------------------------------------------ unsubscribe (RFC 8058)
 
-  api.get('/u/:token', (c) => {
+  api.get('/u/:token', async (c) => {
     // A page with a button, so link scanners that follow GETs cannot unsubscribe anyone.
     const action = escapeHtml(c.req.path);
+    const target = await engine.unsubscribeTarget(c.req.param('token')).catch(() => null);
+    if (!target) return c.html(page('Unsubscribe', '<h1>This link is not valid</h1><p>It may have been copied only in part. Use the unsubscribe link at the foot of the latest email.</p>'), 404);
+    const { tenantName, email } = target;
     return c.html(
       page(
         'Unsubscribe',
-        `<h1>Stop these emails?</h1><p>You will stop getting news and offers from this business. Booking reminders and receipts still arrive.</p>
+        `<h1>Stop emails from ${escapeHtml(tenantName)}?</h1><p>${escapeHtml(email)} will stop getting news and offers from ${escapeHtml(tenantName)}. Booking reminders and receipts still arrive.</p>
 <form method="post" action="${action}"><button type="submit">Unsubscribe</button></form>`,
       ),
     );

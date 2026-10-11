@@ -405,6 +405,8 @@ export const campaigns = pgTable(
     recipients: integer('recipients'),
     skippedNoConsent: integer('skipped_no_consent'),
     skippedSuppressed: integer('skipped_suppressed'),
+    /** Left out because another email from the business reached them in the last day (D127). */
+    skippedRecent: integer('skipped_recent'),
     /** Why a scheduled campaign went back to draft instead of sending, in words to act on. */
     problem: text('problem'),
     createdBy: text('created_by'),

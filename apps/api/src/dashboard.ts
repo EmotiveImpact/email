@@ -400,7 +400,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   /** The email as HTML, for the editor's live preview. Takes unsaved content. */
   r.post('/tenants/:id/campaigns/preview', async (c) => {
     const tenant = await tenantOf(c);
-    return c.json({ html: await engine.previewCampaign(tenant.id, (await json(c)).content) });
+    return c.json(await engine.previewCampaign(tenant.id, (await json(c)).content));
   });
 
   r.get('/tenants/:id/audience', async (c) => {

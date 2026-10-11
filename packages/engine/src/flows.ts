@@ -28,7 +28,7 @@ import {
   type Db,
   type FlowKind,
 } from '@platform/db';
-import { parseContent, sampleValues, type CampaignDeps } from './campaigns.ts';
+import { commonService, parseContent, sampleValues, type CampaignDeps } from './campaigns.ts';
 import type { createDiary, Rhythm } from './diary.ts';
 import type { Queue } from './queue.ts';
 import { isoDay, localDay, localHour, noon, sampleSlots, slotLinks, weekday } from './slots.ts';
@@ -571,6 +571,15 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     return rows.map((r) => ({ ...describe(tenant, r), stats: stats.get(r.id)!, waiting: due.get(r.id) ?? 0 }));
   }
 
+  /** How many clients each kind of flow would email if it were switched on now. */
+  async function waitingByKind(tenantId: string, now = new Date()) {
+    const tenant = await tenantById(tenantId);
+    await ensureFlows(tenantId);
+    const rows = await db.select().from(flows).where(eq(flows.tenantId, tenantId));
+    const due = await waiting(tenant, rows, now);
+    return new Map<FlowKind, number>(rows.map((r) => [r.kind, due.get(r.id) ?? 0]));
+  }
+
   /** Who the flow would email next, and for fill-slots the day and times it would offer. */
   async function nextUp(tenant: Tenant, flow: Flow, now: Date) {
     const [rhythms, people] = await Promise.all([diary.rhythms(tenant.id, now), reachable(tenant.id, now)]);
@@ -662,14 +671,16 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     const doc = parseContent(content ?? flow.content);
     const fill = flow.kind === 'fill_slots' ? await fillDay(tenant, flow, now) : null;
     let slots = await slotsFor(tenant, fill?.day ?? null, now);
-    if (!slots.length) slots = sampleSlots(tenant.timezone, tenant.brand.bookingUrl, now, flow.kind !== 'fill_slots');
+    // A flow goes later, when a connected diary will have times, so show some. Without a diary it
+    // sends the "Choose a time" button, and the preview shows that (D126).
+    if (!slots.length && (await diary.diaryDays(tenant.id, 1, now)).connected) slots = sampleSlots(tenant.timezone, tenant.brand.bookingUrl, now, flow.kind !== 'fill_slots');
     const { html } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
-    const values = { ...sampleValues(tenant, 'ama@example.com'), ...(fill && { slot_day: weekday(fill.day) }) };
-    return { html: fillMergeTags(html, values).replaceAll('{{unsubscribe_url}}', '#'), slotDay: values.slot_day };
+    const values = { ...sampleValues(tenant, 'ama@example.com', await commonService(db, tenantId)), ...(fill && { slot_day: weekday(fill.day) }) };
+    return { html: fillMergeTags(html, values).replaceAll('{{unsubscribe_url}}', '#'), slotDay: values.slot_day, service: values.last_service };
   }
 
   /** The next free times, for campaigns with a free-times block. */
   const upcomingSlots = (tenant: Tenant) => slotsFor(tenant, null, new Date());
 
-  return { listFlows, getFlow, flowDetail, updateFlow, resetFlow, previewFlow, runFlows, flowStats, ensureFlows, upcomingSlots };
+  return { listFlows, waitingByKind, getFlow, flowDetail, updateFlow, resetFlow, previewFlow, runFlows, flowStats, ensureFlows, upcomingSlots };
 }

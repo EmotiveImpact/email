@@ -155,7 +155,12 @@ describe('unsubscribe page', () => {
     const path = new URL(link).pathname;
 
     const get = await api.request(path);
-    expect(await get.text()).toContain('Stop these emails?');
+    const asked = await get.text();
+    expect(asked).toContain('Stop emails from Linden Studio?');
+    expect(asked).toContain('kofi@example.com');
+    const broken = await api.request(`${path.slice(0, -4)}xxxx`);
+    expect(broken.status).toBe(404);
+    expect(await broken.text()).toContain('This link is not valid');
     const post = await api.request(path, { method: 'POST' });
     expect(await post.text()).toContain('will not get news from Linden Studio');
     const again = (await (await call('POST', '/v1/emails', { tenant: 'linden', stream: 'marketing', to: 'kofi@example.com', subject: 'More news', html: '<p>x</p>' })).json()) as { status: string; reason: string };

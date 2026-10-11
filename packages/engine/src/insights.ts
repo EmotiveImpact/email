@@ -45,7 +45,18 @@ const words = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eig
 const count = (n: number) => words[n] ?? String(n);
 const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
 
-export function createInsights({ db, diary, ensureFlows }: { db: Db; diary: Diary; ensureFlows: (tenantId: string) => Promise<unknown> }) {
+export function createInsights({
+  db,
+  diary,
+  ensureFlows,
+  waitingByKind,
+}: {
+  db: Db;
+  diary: Diary;
+  ensureFlows: (tenantId: string) => Promise<unknown>;
+  /** How many each flow would email now, so a suggestion's numbers match the flow it opens. */
+  waitingByKind: (tenantId: string, now: Date) => Promise<Map<FlowKind, number>>;
+}) {
   /** Free and booked time over the next week, by day and part of the day. */
   async function weekAhead(tenantId: string, now: Date) {
     const days = await diary.diaryDays(tenantId, 7, now);
@@ -181,12 +192,13 @@ export function createInsights({ db, diary, ensureFlows }: { db: Db; diary: Diar
 
   /** Up to three things worth doing today, the most time-sensitive and valuable first. */
   async function opportunities(tenantId: string, week: Awaited<ReturnType<typeof weekAhead>>, now: Date): Promise<Opportunity[]> {
-    const [flowRows, avg, due, rhythms, best] = await Promise.all([
+    const [flowRows, avg, due, rhythms, best, ready] = await Promise.all([
       db.select({ id: flows.id, kind: flows.kind, live: flows.live }).from(flows).where(eq(flows.tenantId, tenantId)),
       averagePrice(tenantId, now),
       diary.dueSoon(tenantId, 14, now),
       diary.rhythms(tenantId, now),
       bestCampaign(tenantId, now),
+      waitingByKind(tenantId, now),
     ]);
     const flow = (kind: FlowKind) => flowRows.find((f) => f.kind === kind);
     const worth = (n: number) => (avg ? avg * n : null);
@@ -217,13 +229,20 @@ export function createInsights({ db, diary, ensureFlows }: { db: Db; diary: Diar
     }
 
     const rebook = flow('rebook');
-    if (rebook && !rebook.live && due.length) {
+    const dueNow = ready.get('rebook') ?? 0;
+    if (rebook && !rebook.live && (dueNow || due.length)) {
+      // Lead with the number the flow page will show, so the click-through agrees with Home.
+      const later = Math.max(0, due.length - dueNow);
       out.push({
         kind: 'rebook',
         rank: 1,
-        title: `${count(due.length)} ${plural(due.length, 'client is', 'clients are')} due back`,
-        detail: 'They are near their usual gap between visits and have nothing booked. Due back sends each one a nudge with free times.',
-        value: worth(due.length),
+        title: dueNow
+          ? `${count(dueNow)} ${plural(dueNow, 'client is', 'clients are')} ready for a nudge`
+          : `${count(due.length)} ${plural(due.length, 'client comes', 'clients come')} due in the next two weeks`,
+        detail: dueNow
+          ? `Past their usual gap, nothing booked, and happy to hear from you.${later ? ` ${count(later)} more ${plural(later, 'comes', 'come')} due soon.` : ''} Due back sends each one a nudge with free times.`
+          : 'They are near their usual gap between visits and have nothing booked. Due back sends each one a nudge with free times as they come due.',
+        value: worth(dueNow || due.length),
         note: 'if they each book',
         action: { label: 'Review and switch on', flowId: rebook.id },
       });
@@ -247,14 +266,14 @@ export function createInsights({ db, diary, ensureFlows }: { db: Db; diary: Diar
 
     const winback = flow('winback');
     if (winback && !winback.live) {
-      const lapsed = rhythms.filter((r) => !r.bookedAhead && r.lastVisit && r.lastVisit.getTime() < now.getTime() - LAPSED_DAYS * DAY);
-      if (lapsed.length >= 3) {
+      const lapsed = ready.get('winback') ?? 0;
+      if (lapsed >= 3) {
         out.push({
           kind: 'winback',
           rank: 3,
-          title: `${count(lapsed.length)} clients have drifted away`,
+          title: `${count(lapsed)} clients have drifted away`,
           detail: `No visit or booking in ${LAPSED_DAYS} days. We miss you invites them back once, gently.`,
-          value: worth(lapsed.length),
+          value: worth(lapsed),
           note: 'if they each book',
           action: { label: 'Review and switch on', flowId: winback.id },
         });

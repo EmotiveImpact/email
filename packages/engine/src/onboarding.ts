@@ -21,11 +21,37 @@ const text = (max = 256) =>
     .optional()
     .transform((v) => v || undefined);
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const DAYS_IN = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * A birthday as "MM-DD" from what spreadsheets hold: 1990-03-14, 03-14, 14/03/1990, 14/03,
+ * 14 March or 14 Mar 1990. Slashes are read day first, as in the UK. The year is dropped: the
+ * birthday flow needs only the day, and we keep no more than that. Anything unclear is ignored.
+ */
+export function birthdayFrom(value: string | undefined): string | undefined {
+  const v = value?.trim().toLowerCase();
+  if (!v) return undefined;
+  let m: number | undefined;
+  let d: number | undefined;
+  let match: RegExpExecArray | null;
+  if ((match = /^(?:\d{4}-)?(\d{1,2})-(\d{1,2})$/.exec(v))) [m, d] = [Number(match[1]), Number(match[2])];
+  else if ((match = /^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2}|\d{4}))?$/.exec(v))) [d, m] = [Number(match[1]), Number(match[2])];
+  else if ((match = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\.?(?:,?\s+\d{4})?$/.exec(v))) {
+    d = Number(match[1]);
+    const i = MONTHS.indexOf(match[2]!.slice(0, 3));
+    m = i >= 0 ? i + 1 : undefined;
+  }
+  if (!m || !d || m > 12 || d < 1 || d > DAYS_IN[m - 1]!) return undefined;
+  return `${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 const ClientRow = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
   firstName: text(),
   lastName: text(),
   phone: text(64),
+  birthday: z.string().max(40).optional().transform(birthdayFrom),
 });
 
 export const ImportClientsInput = z.object({
@@ -97,7 +123,7 @@ export function createOnboarding({ db, diary }: { db: Db; diary: ReturnType<type
         email: r.email,
         firstName: r.firstName ?? null,
         lastName: r.lastName ?? null,
-        attributes: r.phone ? { phone: r.phone } : {},
+        attributes: { ...(r.phone && { phone: r.phone }), ...(r.birthday && { birthday: r.birthday }) },
       }));
       // Names fill gaps only, so an import never overwrites what the business already has.
       const saved = await tx

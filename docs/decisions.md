@@ -613,3 +613,34 @@ A security and abuse review of the whole platform came first. It confirmed that 
 - **Per-session framing rules for the studio:** the studio allows framing by any of the app's listed sites rather than only the site that opened that session. Tightening needs the session to carry its origin; worth doing before many apps connect.
 - **Studio allow-list:** the studio blocks a list of owner-only routes rather than allowing a list of safe ones. Safer the other way round, but a larger change to every route.
 - **API key scopes and expiry:** every key can do everything its app can. Scoped, expiring keys matter once outside developers connect, not while the only apps are our own.
+
+## Stage 13: walking the main journeys end to end
+
+A new nail salon, "Fern & Fable Nails", was taken through the running app from sign-up: business details, 30 clients and 169 past visits from spreadsheets, the free plan, Home, switching on Due back, a campaign from a ready-made play with its [brackets] filled in, a test send, the real send, the results page and the unsubscribe page. Each decision below fixes something that walk found.
+
+### D126. Previews show what will actually go
+- **Picked:** without a connected diary, a free-times block now previews as the "Choose a time" button that will really be sent, and the editor says why. Campaigns always preview and test with real times, since they go now. Flows still show example times when a diary is connected, because they send later.
+- **Why:** the preview showed made-up times (Tue 10am, 11:30am…) for a salon with no diary connected, so the owner would expect clients to see times they never would.
+
+### D127. Campaigns leave out anyone emailed in the last day
+- **Picked:** a campaign skips anyone who got another marketing email from the business in the previous 24 hours, and says how many in the audience line, the review and the results.
+- **Why:** in the walk-through, five clients got a Due back nudge and then the salon's campaign four minutes later. Flows already wait three days between emails; campaigns had no gap at all. Klaviyo's Smart Sending works the same way, on by default with a 16-hour window for email.
+- **Considered:** a switch to turn it off per campaign. Left out until someone needs it; the rule is one constant (`CAMPAIGN_GAP_HOURS`).
+
+### D128. Home's suggestions use the flow's own numbers
+- **Picked:** "Worth doing today" now counts the clients each flow would email right now (for example "Five clients are ready for a nudge… Nine more come due soon"), the same number the flow page shows.
+- **Why:** Home said "14 clients are due back" and the button opened a flow saying "5 clients would get it now". Home counted everyone coming due in two weeks, with or without consent.
+
+### D129. Birthdays come in with the client spreadsheet
+- **Picked:** the client import has a Birthday column. It reads 14/03/1990, 1990-03-14, 03-14, 14 March and similar (slashes day first, as in the UK) and keeps only the month and day.
+- **Why:** the birthday flow had no way to learn birthdays except through the API, and the year is not needed, so it is not kept.
+
+### D130. Smaller fixes from the walk-through
+- Previews and test sends use the business's most booked service ("Time for your next Gel manicure?") instead of a made-up "Balayage"; the flow page uses the first client in line.
+- The unsubscribe page names the business and the address before asking, and a broken link gets a plain page instead of an error.
+- Business initials skip symbols ("Fern & Fable" shows FF, not F&).
+- Panels answer Escape even after the focused button disables itself (the "Send test" panel would not close after sending).
+
+### D131. Found and left for later
+- **Joining again after unsubscribing:** people who unsubscribe by mistake have no "join again" link. Worth adding with a fresh consent record.
+- **Free times without a connected booking system:** a salon using a booking system we do not connect to (or a paper diary) gets due-back and birthday emails with a booking button, but never real free times. This is the biggest gap against "the email platform that knows your diary"; how to close it is Edem's call.
