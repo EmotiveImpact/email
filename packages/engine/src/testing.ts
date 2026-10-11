@@ -31,6 +31,8 @@ export async function setup(
     fetch: options.fetch,
     provisioner: options.provisioner ?? new LocalProvisioner(),
     resolveTxt: options.resolveTxt ?? (async () => []),
+    // Test hosts such as saleane.test do not resolve; treat them as public (TEST-NET-3).
+    resolveHost: async () => ['203.0.113.10'],
     imageGenerator: options.imageGenerator,
     paymentProvider: options.paymentProvider,
     config: { publicUrl: 'https://api.test', signingSecret: 'test-secret', defaultFrom: 'hello@platform.test', ...options.config },

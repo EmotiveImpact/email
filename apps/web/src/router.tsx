@@ -208,14 +208,14 @@ declare module '@tanstack/react-router' {
 
 function Centred({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="grid h-full place-items-center p-6">
+    <main className="grid h-full place-items-center p-6">
       <div className="flex max-w-md flex-col items-center gap-3 text-center">
         <h1 className="display m-0 text-[28px]" style={{ fontFamily: "'Cal Sans', sans-serif" }}>
           {title}
         </h1>
         {children && <p className="m-0 text-sm leading-relaxed text-muted">{children}</p>}
       </div>
-    </div>
+    </main>
   );
 }
 

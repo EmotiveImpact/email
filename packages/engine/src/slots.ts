@@ -6,6 +6,8 @@ const DAY = 86_400_000;
 const fmt = (tz: string, options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, ...options });
 export const localHour = (tz: string, at: Date) => Number(fmt(tz, { hour: 'numeric', hourCycle: 'h23' }).format(at));
 export const isoDay = (at: Date) => at.toISOString().slice(0, 10);
+/** The calendar day (YYYY-MM-DD) it is at `at` in a time zone. */
+export const localDay = (tz: string, at: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 /** Noon UTC on a YYYY-MM-DD day: safe to compare with dates and to name the weekday. */
 export const noon = (day: string) => new Date(`${day}T12:00:00Z`);
 export const weekday = (day: string) => fmt('UTC', { weekday: 'long' }).format(noon(day));

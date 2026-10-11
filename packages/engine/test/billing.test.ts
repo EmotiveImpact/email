@@ -48,6 +48,18 @@ describe('who pays', () => {
     await expect(engine.choosePlan(tenant.id, 'growth', { returnUrl: 'https://app.test/billing' })).rejects.toMatchObject({ code: 'not_billed_here' });
   });
 
+  it('puts a business inside an app a customer made on a plan of its own', async () => {
+    const ctx = await setup();
+    close = ctx.close;
+    const { engine, db, tenant } = ctx;
+    // Only apps we set up (Saleane, Caleane) pay for their businesses; anyone can add an app.
+    await db.update(apps).set({ partner: false }).where(eq(apps.id, ctx.appId));
+    await addPeople(ctx, 300);
+    const allowance = await engine.allowance(tenant.id);
+    expect(allowance).toMatchObject({ billed: 'business', plan: { id: 'free' }, overContacts: true });
+    expect(await engine.sendingProblem(tenant.id, 10)).toMatch(/Free plan/);
+  });
+
   it('starts a direct business on the free plan and counts its marketing emails', async () => {
     const ctx = await direct(3);
     await alreadySent(ctx, 40);

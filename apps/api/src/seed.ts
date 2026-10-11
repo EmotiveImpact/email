@@ -9,7 +9,7 @@ import { boot } from './runtime.ts';
 const { db, engine, queue, pool, auth } = await boot();
 
 const { accountId, appId: saleane } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });
-const caleane = (await engine.createApp(accountId, 'Caleane')).id;
+const caleane = (await engine.createApp(accountId, 'Caleane', { partner: true })).id;
 
 const linden = await engine.upsertTenant(saleane, 'linden', {
   name: 'Linden Studio',

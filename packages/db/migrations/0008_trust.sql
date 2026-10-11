@@ -1,0 +1,1 @@
+ALTER TABLE "apps" ADD COLUMN "partner" boolean DEFAULT false NOT NULL;

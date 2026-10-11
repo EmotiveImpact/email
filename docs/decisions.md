@@ -541,3 +541,75 @@ Ran the whole journey as a new salon owner (sign up, bring in clients and visits
 ### D110. Owner-facing words in place of developer words
 - **Picked:** the Flows notice now talks about "free times" and "your booking page" and links to bringing in visits; Home says "Example week" when no diary is connected and no longer claims the week is full.
 - **Why:** owners were shown API names and a misleading "week ahead is full".
+
+## Stage 12: trust, inbox checks, ready-made campaigns and accessibility
+
+A security and abuse review of the whole platform came first. It confirmed that one business can never read another's data, that keys are stored hashed, and that unsubscribe links, SES notices, Stripe events and studio links are all signed and checked. The decisions below close what it did find.
+
+### D111. Test sends go to the team, 25 a day
+- **Picked:** a test email can only go to the person sending it or to members of their account (inside a host app, only to the signed-in person). Each business gets 25 tests a day, and suppressed addresses are refused.
+- **Why:** test sends skip consent and suppressions by design, so without a limit anyone with a free account could use them to email strangers from our domain.
+
+### D112. Partner apps pay for their businesses; added apps bill each business
+- **Picked:** an app now has a `partner` flag. The app made with an account (and Saleane and Caleane) is a partner and pays for all its businesses. An app a customer adds in Developers is not, so each of its businesses needs its own plan.
+- **Why:** before this, any app could create businesses through the API that sent on nobody's plan, which was free unlimited sending.
+- **For Edem:** to make an added app pay for its businesses, set the flag by hand (docs/production.md, step 10).
+
+### D113. Webhooks only post to the public internet
+- **Picked:** webhook addresses must be https and every address the name resolves to must be public; this is checked when the address is added and again before every delivery, and redirects count as failures. Endpoints can now be listed and removed (`GET` and `DELETE /v1/webhooks`).
+- **Why:** a customer could otherwise point a webhook at the cloud metadata service or our database and use us to reach inside our network.
+- **Left open:** a name that changes its answer between our check and the post (DNS rebinding) is still possible in theory. Closing it fully means pinning the address in the HTTP client, which Node's `fetch` does not offer without extra code. The window is milliseconds, and the post body is ours, so it waits.
+
+### D114. Rate limits shared through Postgres
+- **Picked:** a fixed-window counter per key in one table, so every container counts together. Limits: 1,200 API calls a minute per app, 5,000 booking emails an hour per business, 600 dashboard actions a minute per person, 20 sign-in tries per 10 minutes, 5 sign-ups and 5 password resets an hour per address. Over the limit answers 429 with `Retry-After`. Bodies are capped (6 MB for emails with attachments, 1 MB elsewhere).
+- **Why:** one runaway script or attacker could otherwise flood sending, sign-in or the database. Redis would be faster but adds a service to run and pay for.
+- **Also:** marketing sent through the API now checks the business's plan, like campaigns already did.
+
+### D115. The dashboard only accepts changes from the web app
+- **Picked:** any change request whose `Origin` is not the web app is refused.
+- **Why:** sign-in uses a cookie, so another site could otherwise make a signed-in owner's browser send changes (cross-site request forgery).
+
+### D116. Money and reputation are owner and admin only
+- **Picked:** changing plan, opening billing, deleting a domain and resuming paused sending need an owner or admin, and are never allowed from the studio inside a host app.
+- **Why:** a member or a studio session could otherwise change what the business pays or switch sending back on after the reputation guard paused it.
+
+### D117. From addresses are parsed strictly
+- **Picked:** one address only, no quotes, line breaks or extra `@` in the name; on the shared platform domain only the platform's own address.
+- **Why:** loose parsing let a sender slip in a second address or a header, or send as anyone at our domain.
+
+### D118. The newest consent wins
+- **Picked:** a consent record only changes someone's status if it is newer than what we hold, and an import or app update can lift an unsubscribe only when the opt-in is newer than the unsubscribe.
+- **Why:** an app retrying an old "granted" could otherwise undo a client's unsubscribe, which breaks PECR and UK GDPR.
+
+### D119. Every marketing email carries a visible unsubscribe
+- **Picked:** if an email has no `{{unsubscribe_url}}` in it, the platform adds a plain unsubscribe line at the foot. The one-click header was already on every marketing email.
+- **Why:** PECR and Gmail's sender rules both expect a visible, simple way out, and a custom template could leave it off.
+
+### D120. Production refuses to start half-configured
+- **Picked:** the API will not start with SES sending switched on unless the bounce and complaint notices are wired up. A host app can no longer set a business's SES tenant through the API.
+- **Why:** without notices, bounces and complaints are never recorded and the reputation guard is blind. The SES tenant is ours to manage.
+
+### D121. Two new flows: review asks and birthdays
+- **Picked:** "Ask for a review" sends the day after a visit to clients with at least two visits, linking to the business's review page (set under Appearance). "Birthday" sends a week before, with free times, for clients whose birthday the app sends (`MM-DD` or a full date; 29 February falls on the 28th otherwise).
+- **Why:** both are standard plays for salons and studios, and the brief asked for them.
+- **Not done on purpose:** no "review gating" (asking happy clients only). Google's and the UK CMA's rules treat filtering reviewers as misleading, so everyone who qualifies gets the same link.
+- **Saleane:** keeps its own after-visit feedback email, so its studios leave this flow off (guide updated).
+
+### D122. Inbox checks are advice, not blocks
+- **Picked:** before sending, the review panel lists things that hurt delivery or reading: a shouting or long subject, extra exclamation marks, no preview text, spam phrases, pictures without descriptions, mostly-picture emails, shortened or http links, too many links.
+- **Why:** these lower the odds of reaching the inbox but are sometimes right for a business, so the owner decides. The hard rules (no subject, unverified domain, no postal address, unfilled [brackets]) still block, and a missing unsubscribe link is added automatically (D119).
+
+### D123. Nine ready-made campaigns, with gaps that must be filled
+- **Picked:** "Create campaign" now opens a picker of ready-made campaigns: spaces this week, something new, gift vouchers, bring a friend, price changes, holiday times, mini sessions, bookings open, recent work. Each is grouped for salons, studios or any business. Parts the owner must write are in [square brackets], and a campaign cannot send while any remain.
+- **Why:** a blank page is the main reason small businesses never send. Brackets keep the copy honest without risking a half-finished email going out.
+- **The automatic plays** (due back, quiet days, we miss you, reviews, birthdays) stay as flows.
+
+### D124. Accessibility on the main screens
+- **Picked:** every side panel and the design canvas now takes keyboard focus when it opens, keeps Tab inside, closes with Escape (except the canvas, so a stray key never loses work) and returns focus where it was. The Home tables were given correct table structure, the flows on Home are proper links, code samples can be scrolled by keyboard, and signed-out screens have a main landmark. Checked with axe against every main screen.
+- **Why:** keyboard and screen-reader users could get lost behind open panels, and public sector and larger customers ask for WCAG 2.1 AA.
+- **Left for Edem:** some grey text (#A3A3A9 on white, about 2.5 to 1) and white on the Ember buttons (about 4.3 to 1) are below the WCAG AA contrast of 4.5 to 1. Fixing them means changing colours, which stays Edem's call.
+
+### D125. Not done in this pass, and why
+- **Per-session framing rules for the studio:** the studio allows framing by any of the app's listed sites rather than only the site that opened that session. Tightening needs the session to carry its origin; worth doing before many apps connect.
+- **Studio allow-list:** the studio blocks a list of owner-only routes rather than allowing a list of safe ones. Safer the other way round, but a larger change to every route.
+- **API key scopes and expiry:** every key can do everything its app can. Scoped, expiring keys matter once outside developers connect, not while the only apps are our own.

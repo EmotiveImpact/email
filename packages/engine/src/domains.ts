@@ -29,6 +29,20 @@ const CHECK_EVERY_MINUTES = 5;
 
 const HOSTNAME = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
+const ADDRESS = '[^\\s<>@"(),;:\\\\]+@[^\\s<>@"(),;:\\\\]+\\.[^\\s<>@"(),;:\\\\]+';
+const FROM = new RegExp(`^(?:([^"<>@\\r\\n\\\\]{1,100}?)\\s*<(${ADDRESS})>|(${ADDRESS}))$`);
+
+/**
+ * Reads a From line: `hello@salon.co.uk` or `Linden Studio <hello@salon.co.uk>`. One address, and
+ * no quotes or extra @ in the name, so what we check is what inboxes show. Null when it is neither.
+ */
+export function parseFrom(value: string) {
+  const match = FROM.exec(value.trim());
+  if (!match) return null;
+  const address = (match[2] ?? match[3])!.toLowerCase();
+  return { name: match[1]?.trim() || null, address, domain: address.split('@')[1]! };
+}
+
 export const domainOf = (address: string | null | undefined) => address?.split('@')[1]?.replace(/>.*$/, '').trim().toLowerCase() ?? null;
 
 /** What DMARC record to suggest: report-only to start with, which is safe for any domain. */
@@ -145,9 +159,16 @@ export function createDomains({ db, queue, provisioner, defaultFrom, verifiedDom
 
   /** Refuses a from address on a domain the business has not verified. */
   async function assertCanSendFrom(tenant: Tenant, from: string) {
+    const parsed = parseFrom(from);
+    if (!parsed) throw new PlatformError('invalid_request', 'Give "from" as an address, or a name and an address like Linden Studio <hello@linden.co.uk>.', 422);
     if (!verifiedDomainsOnly) return;
-    const domain = domainOf(from.includes('@') ? from : null);
-    if (domain === platformDomain || (await verifiedDomain(tenant.id, domain))) return;
+    const domain = parsed.domain;
+    // On the platform's own domain, only the shared sending address, never another mailbox there.
+    if (domain === platformDomain) {
+      if (parsed.address === parseFrom(defaultFrom)?.address) return;
+      throw new PlatformError('domain_not_verified', `Only ${parseFrom(defaultFrom)?.address} can be used on ${platformDomain}. Verify your own domain to send from other addresses.`, 422);
+    }
+    if (await verifiedDomain(tenant.id, domain)) return;
     throw new PlatformError(
       'domain_not_verified',
       `${domain ?? from} is not verified for this business. Add it with POST /v1/tenants/${tenant.externalId}/domains, or leave out "from".`,

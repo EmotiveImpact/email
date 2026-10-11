@@ -48,6 +48,9 @@ describe('sending domains', () => {
     const before = await engine.sendEmail(app, { tenant: 'linden', to: 'ama@example.com', subject: 'Hi', text: 'Hi' });
     expect(before).toMatchObject({ from: 'Linden Studio <hello@platform.test>', replyTo: 'news@linden.test' });
     await failsWith(engine.sendEmail(app, { tenant: 'linden', from: 'news@linden.test', to: 'ama@example.com', subject: 'Hi', text: 'Hi' }), 'domain_not_verified');
+    // Another mailbox on the platform's domain, or a From line that hides a second address, is refused.
+    await failsWith(engine.sendEmail(app, { tenant: 'linden', from: 'Account Security <security@platform.test>', to: 'ama@example.com', subject: 'Hi', text: 'Hi' }), 'domain_not_verified');
+    await failsWith(engine.sendEmail(app, { tenant: 'linden', from: '"x@platform.test>" <ceo@other.test>', to: 'ama@example.com', subject: 'Hi', text: 'Hi' }), 'invalid_request');
 
     const added = await engine.addDomain(tenant.id, 'https://Linden.TEST/');
     expect(added).toMatchObject({ domain: 'linden.test', status: 'pending' });

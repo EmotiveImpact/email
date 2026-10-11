@@ -9,6 +9,7 @@ export const MERGE_TAGS = [
   { key: 'email', label: 'Email' },
   { key: 'business_name', label: 'Business name' },
   { key: 'booking_url', label: 'Booking link' },
+  { key: 'review_url', label: 'Review link' },
   { key: 'last_service', label: 'Their last treatment' },
   { key: 'weeks_since_visit', label: 'Weeks since their visit' },
   { key: 'slot_day', label: 'The day with space (fill-slots emails)' },

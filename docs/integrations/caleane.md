@@ -30,6 +30,7 @@ Caleane has no marketing of its own today, so there is nothing to switch off. Tw
 2. Under the Caleane app, **Sites that can show the studio inside them**: add Caleane's address.
 3. In Caleane's environment set `PLATFORM_API_KEY`, `PLATFORM_URL` (such as `https://app.<yourdomain>`) and `CALEANE_EMAIL_PROVIDER=platform`.
 4. Each studio adds its postal address in the platform's Appearance settings before its first campaign. The platform will not send marketing without one (UK e-commerce rules and the US CAN-SPAM Act ask for one).
+5. To use the **Ask for a review** flow, each studio adds its review page (Google, Facebook or similar) under Appearance, Review link. Caleane has no feedback email of its own, so this flow fills that gap.
 
 ## 1. The client for the API
 

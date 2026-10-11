@@ -200,6 +200,41 @@ describe('flows', () => {
     expect(queue.jobs).toEqual([{ name: 'run-flows', data: { tenantId: tenant.id }, startAfter: undefined }]);
   });
 
+  it('asks regulars for a review a day after a visit, once, with the review link', async () => {
+    const { engine, tenant, client, turnOn, run, drain, transport } = await studio();
+    await client('ama@example.com', 'Ama', [-60, -1]);
+    await client('kofi@example.com', 'Kofi', [-1]); // only one visit
+    const flows = await engine.listFlows(tenant.id);
+    const review = flows.find((f) => f.kind === 'review')!;
+    expect(review.problems[0]).toMatch(/review link/);
+    await failsWith(turnOn('review'), 'not_ready');
+    await engine.upsertTenant(tenant.appId, 'linden', { name: 'Linden Studio', brand: { address: '4 Linden Row, Leeds', bookingUrl: 'https://linden.test/book', reviewUrl: 'https://g.page/linden/review' } });
+    await turnOn('review');
+    expect(await run()).toEqual({ review: 1 });
+    await drain();
+    expect(transport.sent[0]).toMatchObject({ to: 'ama@example.com', subject: 'How was your Balayage, Ama?' });
+    expect(transport.sent[0]!.html).toContain('https://g.page/linden/review');
+    expect(await run()).toEqual({});
+  });
+
+  it('sends a birthday note once a year, a few days before', async () => {
+    const { engine, app, tenant, client, turnOn, run, drain, transport } = await studio();
+    const inDays = (n: number) => new Date(Date.now() + n * DAY).toLocaleDateString('en-CA', { timeZone: 'Europe/London' }).slice(5);
+    await client('ama@example.com', 'Ama', [-40]);
+    await client('kofi@example.com', 'Kofi', [-40]);
+    await client('maya@example.com', 'Maya', [-40]);
+    await engine.upsertContact(app, { tenant: 'linden', email: 'ama@example.com', attributes: { birthday: `1990-${inDays(5)}` } });
+    await engine.upsertContact(app, { tenant: 'linden', email: 'kofi@example.com', attributes: { birthday: inDays(20) } }); // too far off
+    await engine.upsertContact(app, { tenant: 'linden', email: 'maya@example.com', attributes: { birthday: 'soon' } }); // unreadable
+    const flow = await turnOn('birthday');
+    expect(await run()).toEqual({ birthday: 1 });
+    await drain();
+    expect(transport.sent[0]).toMatchObject({ to: 'ama@example.com', subject: 'Your birthday is coming up, Ama' });
+    expect(await run()).toEqual({});
+    const detail = await engine.flowDetail(tenant.id, flow.id);
+    expect(detail.recent[0]!.reason).toMatch(/^birthday:\d{4}$/);
+  });
+
   it('looks for clients as soon as a flow is switched on, not at the next tick', async () => {
     const { engine, queue, tenant, turnOn } = await studio();
     queue.jobs.length = 0;

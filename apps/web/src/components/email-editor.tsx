@@ -3,6 +3,7 @@
  * preview (rendered by the same code that sends).
  */
 import { MERGE_TAGS } from '@platform/content/merge';
+import { useDialog } from './dialog.ts';
 import { newBlock } from '@platform/content/blocks';
 import { useQuery } from '@tanstack/react-query';
 import { Braces, CalendarClock, ChevronDown, ChevronUp, Heading, Image, Minus, Monitor, MousePointerClick, MoveVertical, Smartphone, Trash2, Type, X } from 'lucide-react';
@@ -407,14 +408,10 @@ export const fill = (s: string | undefined, business: string, slotDay = 'Thursda
   );
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-      <div role="dialog" aria-label={title} className="flex h-full w-full max-w-[440px] flex-col gap-4 overflow-y-auto bg-paper px-6 py-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div {...dialog} aria-label={title} className="flex h-full w-full max-w-[440px] outline-none flex-col gap-4 overflow-y-auto bg-paper px-6 py-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="display m-0 text-[22px]">{title}</h2>
           <button type="button" aria-label="Close" onClick={onClose} className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted hover:bg-soft">

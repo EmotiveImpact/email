@@ -1,6 +1,7 @@
 /**
  * Flows: emails that go by themselves, timed by the diary. A thank-you after a first visit, a nudge
- * when a client is due back, free times on quiet days, and a note to clients who have drifted away.
+ * when a client is due back, free times on quiet days, a note to clients who have drifted away, a
+ * review ask after a visit, and a birthday note with a reason to book.
  *
  * A job runs every hour for each business. Each flow works out who it is for right now, and a
  * client gets each flow's email once per reason (once per visit, once per quiet day), never more
@@ -30,7 +31,7 @@ import {
 import { parseContent, sampleValues, type CampaignDeps } from './campaigns.ts';
 import type { createDiary, Rhythm } from './diary.ts';
 import type { Queue } from './queue.ts';
-import { isoDay, localHour, noon, sampleSlots, slotLinks, weekday } from './slots.ts';
+import { isoDay, localDay, localHour, noon, sampleSlots, slotLinks, weekday } from './slots.ts';
 import { PlatformError } from './types.ts';
 
 type Tenant = typeof tenants.$inferSelect;
@@ -146,10 +147,68 @@ export const FLOW_LIBRARY: Record<
       ],
     }),
   },
+  review: {
+    name: 'Ask for a review',
+    description: 'A day after a visit, asks a regular client to review you, once per client. Everyone gets the review link; unhappy clients are also invited to reply.',
+    settings: { delayDays: 1, minVisits: 2 },
+    fields: {
+      delayDays: { label: 'Days after their visit', min: 0, max: 14 },
+      minVisits: { label: 'Only after this many visits', min: 1, max: 10 },
+    },
+    subject: 'How was your {{last_service|visit}}, {{first_name|there}}?',
+    content: () => ({
+      version: 1,
+      preview: 'A minute of your time would mean a lot.',
+      blocks: [
+        { id: 'v1', type: 'heading', text: 'Thank you for coming back', level: 1, align: 'left' },
+        {
+          id: 'v2',
+          type: 'text',
+          text: 'Hi {{first_name|there}},\n\nThank you for your {{last_service|visit}}. If you have a minute, a short review helps other people find {{business_name}}, and we read every one.',
+          align: 'left',
+        },
+        { id: 'v3', type: 'button', label: 'Leave a review', url: '{{review_url}}', align: 'left' },
+        { id: 'v4', type: 'text', text: 'If anything was not quite right, reply to this email and tell us. We would like the chance to put it right.\n\n{{business_name}}', align: 'left' },
+      ],
+    }),
+  },
+  birthday: {
+    name: 'Birthday',
+    description: 'A note a few days before a client’s birthday, with an easy way to book a treat. Uses the birthday you hold for them (month and day are enough).',
+    settings: { daysBefore: 7 },
+    fields: { daysBefore: { label: 'Days before their birthday', min: 0, max: 21 } },
+    subject: 'Your birthday is coming up, {{first_name|there}}',
+    content: () => ({
+      version: 1,
+      preview: 'A little something to look forward to.',
+      blocks: [
+        { id: 'd1', type: 'heading', text: 'Happy birthday from all of us', level: 1, align: 'left' },
+        {
+          id: 'd2',
+          type: 'text',
+          text: 'Hi {{first_name|there}},\n\nYour birthday is nearly here, and we would love to help you feel your best for it. Treat yourself to something this week.',
+          align: 'left',
+        },
+        { id: 'd3', type: 'slots', align: 'left' },
+        { id: 'd4', type: 'text', text: 'Have a lovely day,\n{{business_name}}', align: 'left' },
+      ],
+    }),
+  },
 };
 
 /** Every flow setting, so code can read any of them; each flow only uses its own. */
-type FlowSettings = { delayDays: number; graceDays: number; firstGapDays: number; leadDays: number; horizonDays: number; minOpenSlots: number; perSlot: number; afterDays: number };
+type FlowSettings = {
+  delayDays: number;
+  graceDays: number;
+  firstGapDays: number;
+  leadDays: number;
+  horizonDays: number;
+  minOpenSlots: number;
+  perSlot: number;
+  afterDays: number;
+  minVisits: number;
+  daysBefore: number;
+};
 const ALL_SETTINGS = Object.assign({}, ...Object.values(FLOW_LIBRARY).map((f) => f.settings)) as FlowSettings;
 
 type Person = { contactId: string; email: string; firstName: string | null; lastName: string | null };
@@ -197,6 +256,8 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     const typos = unknownMergeTags(`${flow.subject} ${JSON.stringify(doc.blocks)}`);
     if (typos.length) found.push(`Unknown merge tag: {{${typos[0]}}}.`);
     if (!tenant.brand.bookingUrl) found.push('Add your booking link in Appearance; these emails point clients to it.');
+    if (!tenant.brand.reviewUrl && /\{\{\s*review_url/.test(`${flow.subject} ${JSON.stringify(doc.blocks)}`))
+      found.push('Add your review link in Appearance; this email asks clients to leave a review there.');
     if (!tenant.brand.address?.trim()) found.push('Add your postal address in Appearance; it goes at the foot of the email.');
     return found;
   }
@@ -236,6 +297,38 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     return open.sort((a, b) => b.open - a.open || a.day.localeCompare(b.day))[0] ?? null;
   }
 
+  /**
+   * Clients with a birthday held (attribute `birthday`, as MM-DD or YYYY-MM-DD) and how many days
+   * away the next one is, in the business's time zone. 29 February falls on the 28th in other years.
+   */
+  async function birthdays(tenant: Tenant, now: Date) {
+    const rows = await db
+      .select({ contactId: contacts.id, birthday: sql<string>`${contacts.attributes} ->> 'birthday'` })
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, tenant.id), sql`${contacts.attributes} ? 'birthday'`));
+    const today = localDay(tenant.timezone, now);
+    const [y, m, d] = today.split('-').map(Number) as [number, number, number];
+    const base = Date.UTC(y, m - 1, d);
+    const out: { contactId: string; daysAway: number; year: number }[] = [];
+    for (const row of rows) {
+      const match = /(\d{2})-(\d{2})$/.exec(String(row.birthday ?? '').trim());
+      if (!match) continue;
+      const month = Number(match[1]);
+      const day = Number(match[2]);
+      if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+      for (const year of [y, y + 1]) {
+        const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+        const at = Date.UTC(year, month - 1, month === 2 && day === 29 && !leap ? 28 : day);
+        if (at < base) continue;
+        out.push({ contactId: row.contactId, daysAway: Math.round((at - base) / DAY), year });
+        break;
+      }
+    }
+    return out;
+  }
+
+  const emptyRhythm = (contactId: string): Rhythm => ({ contactId, visits: 0, lastVisit: null, gapDays: null, dueAt: null, bookedAhead: false, nextVisit: null, lastService: null });
+
   const dueAt = (r: Rhythm, firstGapDays: number) => r.dueAt ?? (r.lastVisit ? new Date(r.lastVisit.getTime() + firstGapDays * DAY) : null);
 
   /** Who this flow is for right now, before checking what they have already had. */
@@ -264,8 +357,21 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
           if (!r.bookedAhead && last <= t - after && last > t - after - 30 * DAY) out.push({ contactId: r.contactId, reason: `winback:${visit}`, rhythm: r });
           break;
         }
-        case 'fill_slots':
+        case 'review':
+          // Once per client, a short while after a visit, and only once they are a regular.
+          if (r.visits >= s.minVisits && last <= t - s.delayDays * DAY && last > t - (s.delayDays + 3) * DAY) out.push({ contactId: r.contactId, reason: 'review', rhythm: r });
           break;
+        case 'fill_slots':
+        case 'birthday':
+          break;
+      }
+    }
+    if (flow.kind === 'birthday') {
+      const byContact = new Map(rhythms.map((r) => [r.contactId, r]));
+      for (const b of await birthdays(tenant, now)) {
+        if (b.daysAway > s.daysBefore) continue;
+        const rhythm = byContact.get(b.contactId) ?? emptyRhythm(b.contactId);
+        out.push({ contactId: b.contactId, reason: `birthday:${b.year}`, rhythm });
       }
     }
     if (flow.kind === 'fill_slots') {
@@ -321,6 +427,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     email: p.email,
     business_name: tenant.name,
     booking_url: tenant.brand.bookingUrl ?? '',
+    review_url: tenant.brand.reviewUrl ?? '',
     last_service: rhythm?.lastService ?? '',
     weeks_since_visit: rhythm?.lastVisit ? String(Math.max(1, Math.round((now.getTime() - rhythm.lastVisit.getTime()) / (7 * DAY)))) : '',
     slot_day: slotDay,
@@ -348,7 +455,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     let left = await emailsLeft(tenantId);
     let index = 0;
     // Time-sensitive flows first; whoever gets one is skipped by the rest this run.
-    const order: FlowKind[] = ['fill_slots', 'welcome', 'rebook', 'winback'];
+    const order: FlowKind[] = ['fill_slots', 'birthday', 'welcome', 'review', 'rebook', 'winback'];
     for (const flow of live.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
       if (flowProblems(tenant, flow).length) continue;
       const found = await recipients(tenant, flow, rhythms, people, now);
@@ -470,6 +577,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
     const { list, fill } = await recipients(tenant, flow, rhythms, people, now);
     const s = settingsOf(flow);
     const times = fill ? slotLinks(await diary.slotsOn(tenant.id, fill.day, tenant.timezone), tenant.timezone, tenant.brand.bookingUrl, { withDay: false }, 8) : [];
+    const birthdayIn = flow.kind === 'birthday' ? new Map((await birthdays(tenant, now)).map((b) => [b.contactId, b.daysAway])) : null;
     return {
       total: list.length,
       people: list.slice(0, 5).map((p) => ({
@@ -479,6 +587,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
         lastService: p.rhythm.lastService,
         lastVisit: p.rhythm.lastVisit,
         dueAt: dueAt(p.rhythm, s.firstGapDays),
+        birthdayIn: birthdayIn?.get(p.contactId) ?? null,
       })),
       fill: fill ? { day: fill.day, open: fill.open, times: times.map((t) => t.label) } : null,
     };

@@ -7,5 +7,9 @@ Any booking app can use the platform in four parts. The guides below show each f
 3. **Show the studio.** A server route creates a one-time link (`POST /v1/studio/sessions`), and the page mounts it with `mountStudio` from `@platform/sdk/browser`. Allow the platform in the app's `frame-src`, and the app's address under Developers, Sites that can show the studio inside them.
 4. **Forget clients when asked.** `POST /v1/contacts/erase` from wherever the app deletes a client.
 
+Optional extras the flows use: a client's birthday as `attributes.birthday` (`MM-DD` or `YYYY-MM-DD`) for the birthday flow, and the business's review page as `brand.reviewUrl` for the review flow.
+
+Who pays: an app made with an account pays for all its businesses on one bill. An app a customer adds in Developers is billed per business, so a stranger's app cannot send on the account's plan.
+
 - [Saleane](saleane.md): beauty and wellness studios, with its own marketing to hand over.
 - [Caleane](caleane.md): creative studios, with no marketing yet and no consent to start from.

@@ -1,10 +1,10 @@
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Plus } from 'lucide-react';
+import { CalendarClock, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { campaignsQuery, segmentsQuery, useCreateCampaign, type Campaign, type CampaignStatus } from '../api.ts';
+import { campaignsQuery, playsQuery, segmentsQuery, useCreateCampaign, type Campaign, type CampaignStatus, type Play } from '../api.ts';
 import { useTenant } from '../components/Shell.tsx';
-import { money } from '../components/email-editor.tsx';
+import { Sheet, money } from '../components/email-editor.tsx';
 import { Button, Card, Notice, PageTitle, Segmented, cx } from '../components/ui.tsx';
 
 const nf = new Intl.NumberFormat('en-GB');
@@ -50,8 +50,10 @@ export function Campaigns() {
   const best = campaigns.filter((c) => (c.stats?.revenue ?? 0) > 0).sort((a, b) => b.stats!.revenue - a.stats!.revenue)[0];
   const next = campaigns.filter((c) => c.status === 'scheduled' && c.scheduledAt).sort((a, b) => a.scheduledAt!.localeCompare(b.scheduledAt!))[0];
 
-  async function start() {
-    const draft = await create.mutateAsync({});
+  const [picking, setPicking] = useState(false);
+  const start = () => setPicking(true);
+  async function begin(play: string | null) {
+    const draft = await create.mutateAsync(play ? { play } : { content: { version: 1, preview: '', blocks: [] } });
     await navigate({ to: '/$tenant/campaigns/$campaign', params: { tenant: tenant.id, campaign: draft.id } });
   }
 
@@ -77,12 +79,13 @@ export function Campaigns() {
         }
       />
       {create.isError && <Notice tone="bad">{create.error.message}</Notice>}
+      {picking && <PlayPicker busy={create.isPending} onPick={begin} onClose={() => setPicking(false)} />}
 
       {campaigns.length === 0 ? (
         <Card className="flex max-w-2xl flex-col items-start gap-4 px-6 py-6">
           <h2 className="display m-0 text-[22px]">Your first campaign</h2>
           <p className="m-0 text-[15px] leading-relaxed text-muted">
-            Start from a ready-made email about open appointments, change the words, pick who gets it, and send a test to yourself before it goes.
+            Start from a ready-made email, such as this week’s free times or a new treatment, change the words, pick who gets it, and send a test to yourself before it goes.
           </p>
           <Button onClick={start} disabled={create.isPending}>
             Start writing
@@ -187,5 +190,51 @@ function Row({ campaign: c, audience, best }: { campaign: Campaign; audience: st
         )}
       </td>
     </tr>
+  );
+}
+
+const GROUPS: { for: Play['for']; title: string }[] = [
+  { for: 'any', title: 'For any business' },
+  { for: 'salon', title: 'Salons, spas and clinics' },
+  { for: 'studio', title: 'Creative studios' },
+];
+
+/** Choosing what to start from: a ready-made campaign, or a blank email. */
+function PlayPicker({ busy, onPick, onClose }: { busy: boolean; onPick: (play: string | null) => void; onClose: () => void }) {
+  const { data: plays = [] } = useQuery(playsQuery);
+  return (
+    <Sheet title="Start a campaign" onClose={onClose}>
+      <p className="m-0 text-[13px] text-muted">Each one is ready to send once you fill in anything in [square brackets].</p>
+      {GROUPS.map((group) => (
+        <section key={group.for} className="flex flex-col gap-2">
+          <h3 className="m-0 text-[13px] font-semibold">{group.title}</h3>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {plays
+              .filter((p) => p.for === group.for)
+              .map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onPick(p.id)}
+                    className="flex w-full cursor-pointer flex-col items-start gap-1 rounded-xl border-0 bg-transparent px-4 py-3 text-left font-[inherit] shadow-ring hover:bg-soft focus-visible:outline-2 focus-visible:outline-ink disabled:cursor-wait"
+                  >
+                    <span className="text-[14px] font-semibold text-ink">{p.name}</span>
+                    <span className="text-[13px] text-muted">{p.goal}</span>
+                    {p.diary && (
+                      <span className="mt-0.5 flex items-center gap-1 text-xs text-muted">
+                        <CalendarClock size={12} aria-hidden /> Shows your free times
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </section>
+      ))}
+      <Button variant="secondary" className="self-start" disabled={busy} onClick={() => onPick(null)}>
+        Start from a blank email
+      </Button>
+    </Sheet>
   );
 }

@@ -32,6 +32,8 @@ export class PlatformError extends Error {
     readonly code: string,
     message: string,
     readonly status = 400,
+    /** For a 429, the seconds to wait (sent as Retry-After). */
+    readonly details: { retryAfter?: number } = {},
   ) {
     super(message);
   }

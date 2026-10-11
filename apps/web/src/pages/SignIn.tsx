@@ -8,14 +8,14 @@ import { brandVars } from '../theme.ts';
 /** The standard look around the signed-out screens. */
 export function Welcome({ title, subtitle, children }: { title: string; subtitle: ReactNode; children: ReactNode }) {
   return (
-    <div style={brandVars() as CSSProperties} className="grid min-h-full place-items-center bg-canvas p-4">
+    <main style={brandVars() as CSSProperties} className="grid min-h-full place-items-center bg-canvas p-4">
       <div className="w-full max-w-[400px] rounded-[20px] border border-rule bg-paper p-8 shadow-[0_1px_2px_#0000000A]">
         <div className="display mb-6 flex size-10 items-center justify-center rounded-xl bg-accent text-xl text-on-accent">N</div>
         <h1 className="display m-0 text-[28px] leading-tight">{title}</h1>
         <p className="mt-2 mb-6 text-sm leading-relaxed text-muted">{subtitle}</p>
         {children}
       </div>
-    </div>
+    </main>
   );
 }
 

@@ -30,6 +30,7 @@ export function Appearance() {
     (draft.logoUrl ?? '') !== (saved.logoUrl ?? '') ||
     (draft.address ?? '') !== (saved.address ?? '') ||
     (draft.bookingUrl ?? '') !== (saved.bookingUrl ?? '') ||
+    (draft.reviewUrl ?? '') !== (saved.reviewUrl ?? '') ||
     timezone !== tenant.timezone;
 
   // The whole app shows the draft while this page is open; leaving the page drops it.
@@ -60,6 +61,7 @@ export function Appearance() {
                   logoUrl: draft.logoUrl?.trim() ?? '',
                   address: draft.address?.trim() ?? '',
                   bookingUrl: draft.bookingUrl?.trim() ?? '',
+                  reviewUrl: draft.reviewUrl?.trim() ?? '',
                   timezone,
                 })
               }
@@ -162,6 +164,14 @@ export function Appearance() {
             value={draft.bookingUrl ?? ''}
             onChange={(e) => update({ bookingUrl: e.target.value })}
             placeholder="https://lindenstudio.co.uk/book"
+            className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
+          />
+        </Field>
+        <Field label="Review link" hint="Where happy clients leave a review, such as your Google profile. The review flow asks clients after a visit.">
+          <input
+            value={draft.reviewUrl ?? ''}
+            onChange={(e) => update({ reviewUrl: e.target.value })}
+            placeholder="https://g.page/r/…/review"
             className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
           />
         </Field>

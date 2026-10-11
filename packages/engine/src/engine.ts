@@ -28,7 +28,9 @@ import { createAudience } from './audience.ts';
 import { createBilling, SamplePaymentProvider, type PaymentProvider } from './billing.ts';
 import { createCampaigns } from './campaigns.ts';
 import { createDiary } from './diary.ts';
-import { createDomains } from './domains.ts';
+import { createDomains, parseFrom } from './domains.ts';
+import { createLimits, LIMITS } from './limits.ts';
+import { assertPublicUrl, resolveHost, type ResolveHost } from './safe-url.ts';
 import { createFlows } from './flows.ts';
 import { PgAssetStore, SampleImageGenerator, type AssetStore, type ImageGenerator } from './images.ts';
 import { createInsights } from './insights.ts';
@@ -72,7 +74,11 @@ export const SendEmailInput = z
     tenant: z.string().min(1),
     stream: z.enum(['transactional', 'marketing']).default('transactional'),
     to: email,
-    from: z.string().trim().min(3).optional(),
+    from: z
+      .string()
+      .trim()
+      .refine((v) => parseFrom(v) !== null, 'Give "from" as an address, or a name and an address like Linden Studio <hello@linden.co.uk>.')
+      .optional(),
     replyTo: email.optional(),
     subject: z.string().trim().min(1).max(998),
     html: z.string().max(5_000_000).optional(),
@@ -139,6 +145,7 @@ export const UpsertTenantInput = z.object({
       logoUrl: z.url().optional(),
       address: z.string().max(300).optional(),
       bookingUrl: z.url().optional(),
+      reviewUrl: z.url().optional(),
     })
     .optional(),
   /** IANA time zone, such as Europe/London. Flows send in the business's daytime. */
@@ -223,6 +230,9 @@ export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<
   return result.data;
 }
 
+const UNSUBSCRIBE_HTML =
+  '<p style="font:12px/1.5 Arial,sans-serif;color:#6b6b6b;text-align:center;margin:24px 0 0">Don’t want these emails? <a href="{{unsubscribe_url}}" style="color:#6b6b6b">Unsubscribe</a></p>';
+
 export function createEngine(deps: {
   db: Db;
   transport: Transport;
@@ -231,6 +241,8 @@ export function createEngine(deps: {
   fetch?: typeof fetch;
   provisioner?: Provisioner;
   resolveTxt?: (name: string) => Promise<string[][]>;
+  /** Looks up a webhook host's addresses, to refuse private ones. Default: DNS. */
+  resolveHost?: ResolveHost;
   /** Where picture files live. Default: Postgres, served by the API. */
   assetStore?: AssetStore;
   /** Makes pictures from prompts. Default: soft sample pictures, no provider needed. */
@@ -240,6 +252,7 @@ export function createEngine(deps: {
 }) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
+  const resolve = deps.resolveHost ?? resolveHost;
   const domainsApi = createDomains({
     db,
     queue,
@@ -252,6 +265,7 @@ export function createEngine(deps: {
   const sendRate = config.sendRate ?? 10;
   const diary = createDiary(db, getTenant);
   const studioApi = createStudio(db);
+  const limitsApi = createLimits(db);
   const billingApi = createBilling({ db, provider: deps.paymentProvider === undefined ? new SamplePaymentProvider() : deps.paymentProvider });
   const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, emailsLeft: billingApi.emailsLeft });
   const assetsApi = createAssets({
@@ -267,19 +281,20 @@ export function createEngine(deps: {
 
   // ---------------------------------------------------------------- accounts, apps and keys
 
+  /** An account and a partner app, made by us (the seed, tests, or setting up Saleane and Caleane). */
   async function createAccountWithApp(input: { account: string; app: string }) {
     const accountId = newId('acc');
     const appId = newId('app');
     await db.transaction(async (tx) => {
       await tx.insert(accounts).values({ id: accountId, name: input.account, slug: slugify(input.account, accountId) });
-      await tx.insert(apps).values({ id: appId, accountId, name: input.app });
+      await tx.insert(apps).values({ id: appId, accountId, name: input.app, partner: true });
     });
     return { accountId, appId };
   }
 
   /** Adds an app (a product that sends) to an existing account. */
-  async function createApp(accountId: string, name: string, options: { direct?: boolean } = {}) {
-    const [row] = await db.insert(apps).values({ id: newId('app'), accountId, name, direct: options.direct ?? false }).returning();
+  async function createApp(accountId: string, name: string, options: { direct?: boolean; partner?: boolean } = {}) {
+    const [row] = await db.insert(apps).values({ id: newId('app'), accountId, name, direct: options.direct ?? false, partner: options.partner ?? false }).returning();
     return row!;
   }
 
@@ -417,9 +432,16 @@ export function createEngine(deps: {
       .onConflictDoNothing();
   }
 
+  /**
+   * Records a consent change. Every record is kept, but the client's current answer only changes
+   * when this one is the newest, so a late or replayed sync cannot overturn what they said since.
+   */
   async function setConsent(tenantId: string, contactId: string, status: 'granted' | 'withdrawn', source: string, recordedAt = new Date()) {
+    const [latest] = await db.select({ at: consents.recordedAt }).from(consents).where(eq(consents.contactId, contactId)).orderBy(desc(consents.recordedAt)).limit(1);
     await db.insert(consents).values({ id: newId('con'), tenantId, contactId, status, source, recordedAt });
+    if (latest && latest.at > recordedAt) return false;
     await db.update(contacts).set({ marketingConsent: status, updatedAt: new Date() }).where(eq(contacts.id, contactId));
+    return true;
   }
 
   // ---------------------------------------------------------------- contacts and app events
@@ -487,12 +509,20 @@ export function createEngine(deps: {
       .onConflictDoUpdate({ target: [contacts.tenantId, contacts.email], set })
       .returning();
     if (input.consent) {
-      await setConsent(tenant.id, contact!.id, input.consent.marketing, input.consent.source, input.consent.recordedAt);
-      if (input.consent.marketing === 'granted') {
-        // A fresh, recorded opt-in lifts an earlier unsubscribe for this tenant.
+      const recordedAt = input.consent.recordedAt ?? new Date();
+      const current = await setConsent(tenant.id, contact!.id, input.consent.marketing, input.consent.source, recordedAt);
+      if (current && input.consent.marketing === 'granted') {
+        // An opt-in given after they unsubscribed lifts the unsubscribe; an older one does not.
         await db
           .delete(suppressions)
-          .where(and(eq(suppressions.scope, tenant.id), eq(suppressions.email, input.email), eq(suppressions.reason, 'unsubscribe')));
+          .where(
+            and(
+              eq(suppressions.scope, tenant.id),
+              eq(suppressions.email, input.email),
+              eq(suppressions.reason, 'unsubscribe'),
+              sql`${suppressions.createdAt} < ${recordedAt}`,
+            ),
+          );
       }
     }
     const [fresh] = await db.select().from(contacts).where(eq(contacts.id, contact!.id));
@@ -562,6 +592,13 @@ export function createEngine(deps: {
       if (existing) return existing;
     }
 
+    // Marketing counts against the business's plan; booking emails have a generous hourly ceiling.
+    if (input.stream === 'marketing') {
+      const problem = await billingApi.sendingProblem(tenant.id, 1);
+      if (problem) throw new PlatformError('plan_limit', problem, 403);
+    } else {
+      await limitsApi.hit(`tx:${tenant.id}`, LIMITS.transactional);
+    }
     if (input.from) await domainsApi.assertCanSendFrom(tenant, input.from);
     const sender = input.from ? { from: input.from, replyTo: tenant.replyTo } : await domainsApi.senderFor(tenant);
     const blocked = await blockedReason(tenant.id, input.to, input.stream);
@@ -629,7 +666,20 @@ export function createEngine(deps: {
       headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`;
       headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
     }
-    const fillLink = (body: string | null) => body?.replaceAll('{{unsubscribe_url}}', unsubscribeUrl) ?? null;
+    const fillLink = (body: string | null, kind: 'html' | 'text') => {
+      if (body === null) return null;
+      // Every marketing email shows a way out (PECR reg. 22), even raw HTML sent through the API
+      // without our footer: if the link is missing, a short line is added at the end.
+      if (claimed.stream === 'marketing' && !body.includes('{{unsubscribe_url}}')) {
+        body =
+          kind === 'html'
+            ? /<\/body>/i.test(body)
+              ? body.replace(/<\/body>/i, `${UNSUBSCRIBE_HTML}</body>`)
+              : body + UNSUBSCRIBE_HTML
+            : `${body}\n\nUnsubscribe: {{unsubscribe_url}}`;
+      }
+      return body.replaceAll('{{unsubscribe_url}}', unsubscribeUrl);
+    };
 
     try {
       const { providerMessageId } = await transport.send({
@@ -638,8 +688,8 @@ export function createEngine(deps: {
         to: claimed.to,
         replyTo: claimed.replyTo,
         subject: claimed.subject,
-        html: fillLink(claimed.html),
-        text: fillLink(claimed.text),
+        html: fillLink(claimed.html, 'html'),
+        text: fillLink(claimed.text, 'text'),
         headers,
         sesTenant: tenant?.sesTenant,
         tags: { ...claimed.tags, stream: claimed.stream },
@@ -794,11 +844,31 @@ export function createEngine(deps: {
   // ---------------------------------------------------------------- outbound webhooks
 
   async function addWebhookEndpoint(appId: string, url: string, eventTypes: WebhookEvent[] = []) {
-    const parsed = parse(z.url({ protocol: /^https?$/ }), url);
+    const parsed = parse(z.url({ protocol: /^https$/ }), url);
+    await assertPublicUrl(parsed, resolve);
     const secret = `whsec_${randomBytes(24).toString('base64')}`;
     const id = newId('whe');
     await db.insert(webhookEndpoints).values({ id, appId, url: parsed, secret, eventTypes });
     return { id, secret };
+  }
+
+  async function listWebhookEndpoints(appId: string) {
+    const rows = await db
+      .select({ id: webhookEndpoints.id, url: webhookEndpoints.url, events: webhookEndpoints.eventTypes, createdAt: webhookEndpoints.createdAt })
+      .from(webhookEndpoints)
+      .where(and(eq(webhookEndpoints.appId, appId), isNull(webhookEndpoints.disabledAt)))
+      .orderBy(webhookEndpoints.createdAt);
+    return rows;
+  }
+
+  /** Stops an endpoint receiving events. To change a leaked secret, add a new endpoint and remove the old one. */
+  async function removeWebhookEndpoint(appId: string, id: string) {
+    const [row] = await db
+      .update(webhookEndpoints)
+      .set({ disabledAt: new Date() })
+      .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.appId, appId), isNull(webhookEndpoints.disabledAt)))
+      .returning({ id: webhookEndpoints.id });
+    if (!row) throw new PlatformError('not_found', 'No such webhook.', 404);
   }
 
   /** Records an event for every endpoint of the tenant's app that wants it, and queues delivery. */
@@ -848,6 +918,8 @@ export function createEngine(deps: {
     const signature = new Webhook(row.endpoint.secret).sign(deliveryId, timestamp, body);
     let failure: string | null = null;
     try {
+      // Checked again on every delivery: the address a name points to can change after it was added.
+      await assertPublicUrl(row.endpoint.url, resolve);
       const response = await doFetch(row.endpoint.url, {
         method: 'POST',
         headers: {
@@ -857,9 +929,11 @@ export function createEngine(deps: {
           'webhook-signature': signature,
         },
         body,
+        redirect: 'manual',
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) failure = `HTTP ${response.status}`;
+      if (response.status >= 300 && response.status < 400) failure = `HTTP ${response.status}: redirects are not followed`;
+      else if (!response.ok) failure = `HTTP ${response.status}`;
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
     }
@@ -961,7 +1035,10 @@ export function createEngine(deps: {
     ingestSesEvent,
     unsubscribe,
     unsubscribeToken,
+    hitLimit: limitsApi.hit,
     addWebhookEndpoint,
+    listWebhookEndpoints,
+    removeWebhookEndpoint,
     processWebhook,
     listMessages,
     messageStats,

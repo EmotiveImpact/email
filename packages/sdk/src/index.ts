@@ -49,6 +49,8 @@ export type Brand = {
   address?: string;
   /** The business's online booking page. Flows link here, with `?at=` for a chosen free time. */
   bookingUrl?: string;
+  /** Where happy clients leave a review; the review flow links here. */
+  reviewUrl?: string;
 };
 export type Tenant = {
   id: string;
@@ -201,7 +203,11 @@ export class PlatformClient {
   };
 
   readonly webhooks = {
+    /** `url` must be https on the public internet. Keep the secret to check signatures with `verifyWebhook`. */
     create: (url: string, events: WebhookEventType[] = []) => this.call<{ id: string; secret: string; events: WebhookEventType[] }>('POST', '/v1/webhooks', { url, events }),
+    list: () => this.call<{ id: string; url: string; events: WebhookEventType[]; createdAt: string }[]>('GET', '/v1/webhooks'),
+    /** To change a secret, create a new endpoint, switch to it, then remove the old one. */
+    remove: (id: string) => this.call<void>('DELETE', `/v1/webhooks/${encodeURIComponent(id)}`),
   };
 
   /**

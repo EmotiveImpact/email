@@ -1,6 +1,6 @@
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { ArrowLeft, CalendarClock, Check, Send, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Check, Info, Send, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import {
   audienceQuery,
@@ -227,6 +227,7 @@ function ReviewPanel({
   const { data: fresh } = useQuery(campaignQuery(tenant.id, campaign.id));
   const current = fresh ?? campaign;
   const list = problems ?? current.problems;
+  const advice = saving ? [] : current.warnings ?? [];
   const audience = current.audience;
   const [mode, setMode] = useState<'now' | 'later'>('now');
   const [at, setAt] = useState(() => localInput(new Date(Date.now() + 86_400_000)));
@@ -258,12 +259,25 @@ function ReviewPanel({
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {list.map((p) => (
               <li key={p} className="flex items-start gap-2 text-[13px] text-warn">
-                <TriangleAlert size={14} className="mt-0.5 shrink-0" /> {p}
+                <TriangleAlert size={14} className="mt-0.5 shrink-0" aria-hidden /> {p}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {advice.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="m-0 text-[13px] font-semibold">Worth a look before it lands in inboxes</h3>
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {advice.map((p) => (
+              <li key={p} className="flex items-start gap-2 text-[13px] text-muted">
+                <Info size={14} className="mt-0.5 shrink-0" aria-hidden /> {p}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {audience && (
         <section className="flex flex-col gap-1.5 rounded-xl bg-soft px-4 py-3.5">

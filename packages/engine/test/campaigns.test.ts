@@ -48,6 +48,22 @@ describe('campaigns', () => {
     expect(detail.audience).toEqual({ total: 3, noConsent: 1, suppressed: 0, eligible: 2 });
   });
 
+  it('starts from a play, and will not send until the [brackets] are filled in', async () => {
+    const { engine, tenant } = await studio();
+    expect(engine.listPlays().map((p) => p.id)).toContain('mini-sessions');
+    await failsWith(engine.createCampaign(tenant.id, { play: 'nope' }), 'not_found');
+    const draft = await engine.createCampaign(tenant.id, { play: 'holiday-hours' });
+    expect(draft).toMatchObject({ name: 'Holiday opening times', subject: 'Our opening times over [the holiday]' });
+    const detail = await engine.campaignDetail(tenant.id, draft.id);
+    expect(detail.problems).toContain('Fill in the part in square brackets: [the holiday].');
+    // A markdown link is not a gap to fill.
+    const doc = { preview: 'Closed soon', blocks: [{ id: 't', type: 'text', text: 'We close on 24 December. [See the times](https://linden.test/book).' }] };
+    await engine.updateCampaign(tenant.id, draft.id, { subject: 'Our times over Christmas', content: doc });
+    const fixed = await engine.campaignDetail(tenant.id, draft.id);
+    expect(fixed.problems.some((p) => p.includes('square brackets'))).toBe(false);
+    expect(fixed.warnings).toEqual([]);
+  });
+
   it('sends one personal message to each person who said yes, and none to anyone else', async () => {
     const { engine, tenant, content, transport, drain, db } = await studio();
     const draft = await engine.createCampaign(tenant.id, { name: 'Thursday space', subject: '{{first_name}}, Thursday is free', content });
