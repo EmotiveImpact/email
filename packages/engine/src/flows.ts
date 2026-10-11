@@ -155,9 +155,15 @@ const ALL_SETTINGS = Object.assign({}, ...Object.values(FLOW_LIBRARY).map((f) =>
 type Person = { contactId: string; email: string; firstName: string | null; lastName: string | null };
 type Recipient = Person & { reason: string; rhythm: Rhythm };
 
-export type FlowDeps = Pick<CampaignDeps, 'senderFor' | 'sendRate'> & { db: Db; queue: Queue; diary: Diary };
+export type FlowDeps = Pick<CampaignDeps, 'senderFor' | 'sendRate'> & {
+  db: Db;
+  queue: Queue;
+  diary: Diary;
+  /** Marketing emails the business's plan has left this month (see billing.ts). */
+  emailsLeft: (tenantId: string) => Promise<number>;
+};
 
-export function createFlows({ db, queue, senderFor, sendRate, diary }: FlowDeps) {
+export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft }: FlowDeps) {
   async function tenantById(tenantId: string) {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) throw new PlatformError('not_found', 'No such business.', 404);
@@ -338,12 +344,16 @@ export function createFlows({ db, queue, senderFor, sendRate, diary }: FlowDeps)
     const [rhythms, people] = await Promise.all([diary.rhythms(tenantId, now), reachable(tenantId, now)]);
     const sender = await senderFor(tenant);
     const theme = themeFromBrand(tenant.name, tenant.brand);
+    // Over the plan's allowance, flows wait: anyone left out is picked up once there is room again.
+    let left = await emailsLeft(tenantId);
     let index = 0;
     // Time-sensitive flows first; whoever gets one is skipped by the rest this run.
     const order: FlowKind[] = ['fill_slots', 'welcome', 'rebook', 'winback'];
     for (const flow of live.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))) {
       if (flowProblems(tenant, flow).length) continue;
-      const { list, fill } = await recipients(tenant, flow, rhythms, people, now);
+      const found = await recipients(tenant, flow, rhythms, people, now);
+      const list = found.list.slice(0, Number.isFinite(left) ? left : undefined);
+      const { fill } = found;
       if (!list.length) continue;
       const slots = await slotsFor(tenant, fill?.day ?? null, now);
       if (flow.kind === 'fill_slots' && !slots.length) continue;
@@ -395,6 +405,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary }: FlowDeps)
         ids.map((messageId) => ({ data: { messageId }, startAfter: new Date(start + (index++ / sendRate) * 1000) })),
       );
       sent[flow.kind] = ids.length;
+      left -= ids.length;
     }
     return sent;
   }

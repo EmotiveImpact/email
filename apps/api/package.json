@@ -12,7 +12,8 @@
     "seed": "tsx --env-file-if-exists=../../.env src/seed.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "demo:host": "tsx --env-file-if-exists=../../.env src/demo-host.ts"
+    "demo:host": "tsx --env-file-if-exists=../../.env src/demo-host.ts",
+    "stripe:setup": "tsx --env-file-if-exists=../../.env src/stripe-setup.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.4",

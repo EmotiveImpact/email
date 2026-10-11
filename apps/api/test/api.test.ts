@@ -14,10 +14,12 @@ afterEach(async () => {
   close = undefined;
 });
 
-async function start(options: { verifySns?: boolean; fetch?: typeof fetch } = {}) {
+type Mail = { to: string; subject: string; html: string; text: string };
+
+async function start(options: { verifySns?: boolean; fetch?: typeof fetch; mail?: (m: Mail) => Promise<void> } = {}) {
   const ctx = await setup({ fetch: options.fetch });
   close = ctx.close;
-  const auth = createAuth({ db: ctx.db, engine: ctx.engine, secret: 'test-secret-that-is-long-enough-1234', baseURL: WEB, webOrigin: WEB });
+  const auth = createAuth({ db: ctx.db, engine: ctx.engine, secret: 'test-secret-that-is-long-enough-1234', baseURL: WEB, webOrigin: WEB, mail: options.mail });
   const api = createApi({
     engine: ctx.engine,
     db: ctx.db,
@@ -452,5 +454,71 @@ describe('pictures', () => {
 
     expect((await app('DELETE', `${base}/assets/${asset.id}`)).status).toBe(204);
     expect((await ctx.api.request(new URL(asset.url).pathname)).status).toBe(200);
+  });
+});
+
+describe('a business on its own', () => {
+  it('signs up, brings in clients and visits, and picks a plan', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const created = await app('POST', '/app/tenants', { name: 'Fern Nails', address: '2 Fern Street, Leeds', bookingUrl: 'https://fern.test/book', timezone: 'Europe/London' });
+    expect(created.status).toBe(201);
+    const fern = (await created.json()) as { id: string; app: string; brand: Record<string, string> };
+    expect(fern).toMatchObject({ app: 'Direct', brand: { address: '2 Fern Street, Leeds', bookingUrl: 'https://fern.test/book' } });
+    const base = `/app/tenants/${fern.id}`;
+
+    const imported = await app('POST', `${base}/import/clients`, { consent: 'granted', clients: [{ email: 'ama@example.com', firstName: 'Ama' }, { email: 'nope' }] });
+    expect(await imported.json()).toMatchObject({ added: 1, consented: 1, skipped: [{ row: 2 }] });
+    const visits = await app('POST', `${base}/import/visits`, { visits: [{ email: 'ama@example.com', date: '2026-07-01', service: 'Gel nails', price: '30' }] });
+    expect(await visits.json()).toMatchObject({ saved: 1, skipped: [] });
+
+    const started = (await (await app('GET', `${base}/getting-started`)).json()) as { steps: { id: string; done: boolean }[] };
+    expect(started.steps.filter((s) => s.done).map((s) => s.id)).toEqual(['details', 'clients', 'diary']);
+
+    const billing = await (await app('GET', `${base}/billing`)).json();
+    expect(billing).toMatchObject({ billed: 'business', plan: 'free', payments: 'sample', usage: { contacts: 1, emails: 0 } });
+    expect((await app('POST', `${base}/billing/plan`, { plan: 'gold' })).status).toBe(422);
+    expect(await (await app('POST', `${base}/billing/plan`, { plan: 'starter' })).json()).toEqual({ url: null });
+    expect(await (await app('GET', `${base}/billing`)).json()).toMatchObject({ plan: 'starter', status: 'active' });
+
+    // A business inside Saleane is paid for by Saleane.
+    const linden = await (await app('GET', `/app/tenants/${ctx.tenant.id}/billing`)).json();
+    expect(linden).toMatchObject({ billed: 'app' });
+    expect((await app('POST', `/app/tenants/${ctx.tenant.id}/billing/plan`, { plan: 'starter' })).status).toBe(409);
+  });
+
+  it('turns away Stripe webhooks when Stripe is not set up', async () => {
+    const { api } = await start();
+    const response = await api.request('/billing/stripe', { method: 'POST', body: '{}', headers: { 'stripe-signature': 't=1,v1=x' } });
+    expect(response.status).toBe(404);
+  });
+
+  it('emails a link to reset a forgotten password', async () => {
+    const sent: Mail[] = [];
+    const ctx = await start({ mail: async (m) => void sent.push(m) });
+    await signedIn(ctx);
+    const asked = await ctx.api.request('/auth/request-password-reset', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: WEB },
+      body: JSON.stringify({ email: 'edem@test.dev', redirectTo: `${WEB}/reset-password` }),
+    });
+    expect(asked.status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: 'edem@test.dev', subject: 'Reset your password' });
+    const link = sent[0]!.text.match(/https?:\/\/\S+/)![0];
+    const token = new URL(link).pathname.split('/').pop()!;
+
+    const reset = await ctx.api.request('/auth/reset-password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: WEB },
+      body: JSON.stringify({ token, newPassword: 'another-long-password' }),
+    });
+    expect(reset.status).toBe(200);
+    const signIn = await ctx.api.request('/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: WEB },
+      body: JSON.stringify({ email: 'edem@test.dev', password: 'another-long-password' }),
+    });
+    expect(signIn.status).toBe(200);
   });
 });

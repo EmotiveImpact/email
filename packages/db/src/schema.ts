@@ -132,6 +132,11 @@ export const apps = pgTable('apps', {
   name: text('name').notNull(),
   /** Web origins allowed to embed the studio (for example https://app.saleane.com). */
   embedOrigins: jsonb('embed_origins').$type<string[]>().notNull().default([]),
+  /**
+   * The account's own "Direct" app: its businesses sign up with us and each pays for a plan. An
+   * app's other businesses (a salon inside Saleane) are paid for by the app, not by us.
+   */
+  direct: boolean('direct').notNull().default(false),
   createdAt: created(),
 });
 
@@ -392,6 +397,8 @@ export const campaigns = pgTable(
     recipients: integer('recipients'),
     skippedNoConsent: integer('skipped_no_consent'),
     skippedSuppressed: integer('skipped_suppressed'),
+    /** Why a scheduled campaign went back to draft instead of sending, in words to act on. */
+    problem: text('problem'),
     createdBy: text('created_by'),
     createdAt: created(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -612,3 +619,33 @@ export const assetBlobs = pgTable('asset_blobs', {
   data: bytea('data').notNull(),
   createdAt: created(),
 });
+
+// ---------------------------------------------------------------- billing
+
+export const PLAN_IDS = ['free', 'starter', 'growth', 'studio', 'scale'] as const;
+export type PlanId = (typeof PLAN_IDS)[number];
+
+/**
+ * A business's paid plan. No row means the free plan (for a Direct business) or nothing to pay
+ * (for a business inside someone else's app). Kept in step with Stripe by its webhooks.
+ */
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    tenantId: text('tenant_id')
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    plan: text('plan', { enum: PLAN_IDS }).notNull(),
+    /** Stripe's status: active, trialing, past_due, unpaid, canceled, incomplete, incomplete_expired, paused. */
+    status: text('status').notNull(),
+    provider: text('provider', { enum: ['stripe', 'sample'] }).notNull(),
+    customerId: text('customer_id'),
+    subscriptionId: text('subscription_id'),
+    periodStart: timestamp('period_start', { withTimezone: true }),
+    periodEnd: timestamp('period_end', { withTimezone: true }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('subscriptions_provider_id').on(t.subscriptionId).where(sql`${t.subscriptionId} is not null`), index('subscriptions_customer').on(t.customerId)],
+);
+
