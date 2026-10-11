@@ -119,7 +119,28 @@ export class PlatformClient {
   readonly webhooks = {
     create: (url: string, events: WebhookEventType[] = []) => this.call<{ id: string; secret: string; events: WebhookEventType[] }>('POST', '/v1/webhooks', { url, events }),
   };
+
+  /**
+   * The embedded campaign studio. Allow your app's origin once, then create a session on your
+   * server each time someone opens Email, and load its `url` in an iframe (`mountStudio` from `@platform/sdk/browser`).
+   */
+  readonly studio = {
+    setOrigins: (origins: string[]) => this.call<{ origins: string[] }>('PUT', '/v1/studio/origins', { origins }),
+    createSession: (session: StudioSessionInput) => this.call<{ url: string; expiresAt: string }>('POST', '/v1/studio/sessions', session),
+  };
 }
+
+export type StudioSessionInput = {
+  /** Your id for the business. */
+  tenant: string;
+  /** The origin of the page that will show the studio, such as https://app.saleane.com. */
+  origin: string;
+  /** The person opening it. Their email is the default address for test sends. */
+  user: { id: string; name?: string; email?: string };
+  /** Your app's look, so the studio reads as part of it. */
+  theme?: { accent?: string; headingFont?: 'cal-sans' | 'geist' | 'serif'; canvas?: string };
+  page?: 'campaigns' | 'audience';
+};
 
 /** Checks a webhook really came from the platform and returns the event. Throws if not. */
 export function verifyWebhook(body: string, headers: Record<string, string>, secret: string): WebhookEvent {

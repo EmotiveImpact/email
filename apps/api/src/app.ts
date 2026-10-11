@@ -120,6 +120,20 @@ export function createApi(options: ApiOptions) {
     return c.json({ id: endpoint.id, secret: endpoint.secret, events }, 201);
   });
 
+  /** Which web origins may show the embedded studio. Replaces the list. */
+  v1.put('/studio/origins', async (c) => c.json({ origins: await engine.setEmbedOrigins(c.var.app.id, await body(c)) }));
+
+  /**
+   * Opens the studio for one business and one person. Call it from your server, then load `url`
+   * in an iframe straight away: the link works once, within five minutes.
+   */
+  v1.post('/studio/sessions', async (c) => {
+    const input = (await body(c)) as { page?: unknown };
+    const { launchToken, expiresAt } = await engine.createStudioSession(c.var.app, input);
+    const page = input.page === 'audience' ? 'audience' : 'campaigns';
+    return c.json({ url: `${options.webOrigin}/embed?page=${page}#token=${launchToken}`, expiresAt }, 201);
+  });
+
   api.route('/v1', v1);
 
   // ------------------------------------------------------------------ SES events via SNS

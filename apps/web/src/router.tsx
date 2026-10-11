@@ -9,6 +9,7 @@ import { Audience, type AudienceSearch } from './pages/Audience.tsx';
 import { CampaignPage } from './pages/CampaignEditor.tsx';
 import { Campaigns } from './pages/Campaigns.tsx';
 import { Developers } from './pages/Developers.tsx';
+import { Embed } from './pages/Embed.tsx';
 import { Home } from './pages/Home.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
@@ -31,12 +32,14 @@ async function requireMe(queryClient: QueryClient) {
   try {
     return await queryClient.ensureQueryData(meQuery);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) throw redirect({ to: '/sign-in' });
+    // Inside a host app's frame there is no sign-in page: the host has to open the studio again.
+    if (error instanceof ApiError && error.status === 401) throw redirect({ to: window.parent !== window ? '/embed' : '/sign-in' });
     throw error;
   }
 }
 
 const signIn = createRoute({ getParentRoute: () => root, path: 'sign-in', component: SignIn });
+const embed = createRoute({ getParentRoute: () => root, path: 'embed', component: Embed });
 
 const setup = createRoute({
   getParentRoute: () => root,
@@ -113,6 +116,7 @@ const appearance = createRoute({ getParentRoute: () => tenant, path: 'settings/a
 const routeTree = root.addChildren([
   index,
   signIn,
+  embed,
   setup,
   tenant.addChildren([home, sending, campaigns, campaign, flows, audience, segment, developers, appearance]),
 ]);

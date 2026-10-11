@@ -1,15 +1,19 @@
 /**
  * The web app's endpoints, under /app. Everything here needs a signed-in person and works inside
  * their active account; businesses are addressed by their internal id.
+ *
+ * The embedded studio uses the same endpoints with a studio session token instead of a sign-in
+ * cookie. That session reaches one business only, and none of the account-level settings.
  */
 import { apps, eq, members, messages, tenants, type Db } from '@platform/db';
-import { parseDefinition, PlatformError, slugify, type Engine } from '@platform/engine';
+import { parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Auth } from './auth.ts';
 
-type Session = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>>>;
-type Env = { Variables: { session: Session; accountId: string } };
+/** Whoever is using the app: a signed-in person, or someone in a host app's embedded studio. */
+type Viewer = { id: string; name: string; email: string | null };
+type Env = { Variables: { viewer: Viewer; accountId: string; studio?: StudioViewer } };
 
 /** How the Sending page groups statuses. */
 export const SHOW = {
@@ -49,13 +53,27 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   const r = new Hono<Env>();
   r.use(cors({ origin: webOrigin, credentials: true }));
 
+  /** The studio swaps its one-time launch token for a session token. Needs no other sign-in. */
+  r.post('/studio/exchange', async (c) => c.json(await engine.exchangeStudioToken((await json(c)).token)));
+
   r.use(async (c, next) => {
+    const header = c.req.header('authorization');
+    if (header?.startsWith('Studio ')) {
+      const studio = await engine.studioViewer(header.slice(7).trim());
+      if (!studio) throw new PlatformError('studio_expired', 'This studio session has ended. Open it again from your app.', 401);
+      const account = c.req.path.match(/\/app\/(accounts|studio)/) || (c.req.path.endsWith('/tenants') && c.req.method !== 'GET') || c.req.path.endsWith('/brand');
+      if (account) throw new PlatformError('forbidden', 'The studio cannot change account settings.', 403);
+      c.set('studio', studio);
+      c.set('viewer', studio.user);
+      c.set('accountId', studio.accountId);
+      return next();
+    }
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) throw new PlatformError('unauthorised', 'Sign in first.', 401);
     const memberships = await db.select({ accountId: members.organizationId }).from(members).where(eq(members.userId, session.user.id));
     const active = session.session.activeOrganizationId;
     const accountId = memberships.find((m) => m.accountId === active)?.accountId ?? memberships[0]?.accountId;
-    c.set('session', session);
+    c.set('viewer', { id: session.user.id, name: session.user.name, email: session.user.email });
     if (accountId) c.set('accountId', accountId);
     else if (!(c.req.path.endsWith('/me') || (c.req.path.endsWith('/accounts') && c.req.method === 'POST'))) {
       throw new PlatformError('no_account', 'Create an account first.', 403);
@@ -63,15 +81,28 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     await next();
   });
 
-  const tenantOf = (c: { var: Env['Variables']; req: { param: (k: 'id') => string } }) => engine.tenantInAccount(c.var.accountId, c.req.param('id'));
+  const tenantOf = (c: { var: Env['Variables']; req: { param: (k: 'id') => string } }) => {
+    if (c.var.studio && c.req.param('id') !== c.var.studio.tenantId) throw new PlatformError('not_found', 'No such business.', 404);
+    return engine.tenantInAccount(c.var.accountId, c.req.param('id'));
+  };
 
   // ---------------------------------------------------------------- who is signed in
 
   r.get('/me', async (c) => {
-    const { user } = c.var.session;
+    const user = c.var.viewer;
+    const { studio } = c.var;
+    if (studio) {
+      return c.json({
+        user,
+        accountId: studio.accountId,
+        accounts: [],
+        studio: { tenantId: studio.tenantId, origin: studio.origin, theme: studio.theme, expiresAt: studio.expiresAt },
+      });
+    }
     const list = await auth.api.listOrganizations({ headers: c.req.raw.headers });
     return c.json({
-      user: { id: user.id, name: user.name, email: user.email },
+      user,
+      studio: null,
       accountId: c.var.accountId ?? null,
       accounts: list.map((a) => ({ id: a.id, name: a.name })),
     });
@@ -94,7 +125,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   // ---------------------------------------------------------------- businesses
 
   r.get('/tenants', async (c) => {
-    const rows = await engine.tenantsForAccount(c.var.accountId);
+    const rows = (await engine.tenantsForAccount(c.var.accountId)).filter((row) => !c.var.studio || row.tenant.id === c.var.studio.tenantId);
     return c.json(rows.map((row) => dashboardTenant(row.tenant, row.appName)));
   });
 
@@ -166,7 +197,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   r.post('/tenants/:id/contacts', async (c) => {
     const tenant = await tenantOf(c);
     const body = await json(c);
-    const consent = body.consent === true ? ({ marketing: 'granted', source: `added-by:${c.var.session.user.email}` } as const) : undefined;
+    const consent = body.consent === true ? ({ marketing: 'granted', source: c.var.studio ? `added-in:${c.var.studio.appId}:${c.var.viewer.email ?? c.var.viewer.id}` : `added-by:${c.var.viewer.email}` } as const) : undefined;
     return c.json(await engine.addContact(tenant.id, body, consent), 201);
   });
 
@@ -218,7 +249,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.post('/tenants/:id/campaigns', async (c) => {
     const tenant = await tenantOf(c);
-    return c.json(await engine.createCampaign(tenant.id, campaignInput(await json(c)), c.var.session.user.id), 201);
+    return c.json(await engine.createCampaign(tenant.id, campaignInput(await json(c)), c.var.viewer.id), 201);
   });
 
   r.get('/tenants/:id/campaigns/:campaignId', async (c) => {
@@ -266,7 +297,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.post('/tenants/:id/campaigns/:campaignId/test', async (c) => {
     const tenant = await tenantOf(c);
-    const to = String((await json(c)).to ?? c.var.session.user.email);
+    const to = String((await json(c)).to ?? c.var.viewer.email ?? '');
     const message = await engine.sendTest(tenant.id, c.req.param('campaignId'), to);
     return c.json({ to: message.to }, 202);
   });

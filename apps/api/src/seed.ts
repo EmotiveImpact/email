@@ -21,6 +21,8 @@ const harbour = await engine.upsertTenant(caleane, 'harbour-films', { name: 'Har
 const saleaneKey = await engine.createApiKey(saleane, 'Saleane server');
 const caleaneKey = await engine.createApiKey(caleane, 'Caleane server');
 const app = await engine.authenticate(saleaneKey.key);
+// The demo host page (`pnpm demo:host`) shows Saleane's embedded studio from this origin.
+await engine.setEmbedOrigins(saleane, { origins: ['http://localhost:3000'] });
 
 // ---------------------------------------------------------------- clients and their bookings
 

@@ -149,6 +149,14 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `@tiptap/react` 3.31.4 | MIT | Kept for a later rich-text toolbar (D35) |
 | Listmonk campaign pacing | AGPL-3.0 | Studied only: rate-limited sending per campaign. Our pacing uses pg-boss `startAfter` (D38) |
 
+## Used in stage 4 (embedded studio)
+
+| Package (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `iframe-resizer` and `@iframe-resizer/parent` 5.5.9 | GPL-3.0 (or commercial) | Considered for frame sizing. Licence rules it out; we post the height ourselves (D48) |
+| `penpal` 8.0.1 | MIT | Kept for later, if hosts need to call into the studio (D48) |
+| `post-robot` 8.0.32 | Apache-2.0 (PayPal) | Considered. Last release August 2024 |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates

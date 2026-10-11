@@ -38,4 +38,8 @@ it('talks to the API end to end, including webhook verification', async () => {
   expect(() => verifyWebhook(delivered[0]!.body, delivered[0]!.headers, 'whsec_' + Buffer.from('wrong').toString('base64'))).toThrow();
 
   await expect(client.emails.send({ tenant: 'nobody', to: 'a@b.co', subject: 'x', text: 'x' })).rejects.toBeInstanceOf(PlatformApiError);
+
+  expect(await client.studio.setOrigins(['https://app.caleane.test'])).toEqual({ origins: ['https://app.caleane.test'] });
+  const studio = await client.studio.createSession({ tenant: 'caleane-studio', origin: 'https://app.caleane.test', user: { id: 'u1', email: 'owner@harbour.test' } });
+  expect(studio.url).toMatch(/^http:\/\/localhost:5173\/embed\?page=campaigns#token=stl_/);
 });

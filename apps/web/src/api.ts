@@ -1,5 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { EmailDoc } from '@platform/content/blocks';
+import { endStudio, studioSession, tellHost, type StudioTheme } from './studio.ts';
 import type { Brand } from './theme.ts';
 
 /** Empty: the app serves /app and /auth from its own origin (Vite proxies them in development). */
@@ -63,7 +64,9 @@ export class ApiError extends Error {
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}${path}`, { credentials: 'include', ...init, headers: { 'content-type': 'application/json', ...init?.headers } });
+    const studio = studioSession();
+    const headers = { 'content-type': 'application/json', ...(studio && { authorization: `Studio ${studio.sessionToken}` }), ...init?.headers };
+    response = await fetch(`${BASE}${path}`, { credentials: studio ? 'omit' : 'include', ...init, headers });
   } catch {
     throw new ApiError('offline', 'Cannot reach the API. Is it running?', 0);
   }
@@ -73,6 +76,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // Our API nests errors under `error`; Better Auth puts code and message at the top level.
     const code = body?.error?.code ?? body?.code ?? 'error';
     const message = body?.error?.message ?? body?.message ?? `The API answered ${response.status}.`;
+    if (code === 'studio_expired') {
+      tellHost({ type: 'session-expired' });
+      endStudio();
+    }
     throw new ApiError(code, message, response.status);
   }
   return body as T;
@@ -80,7 +87,13 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ---------------------------------------------------------------- who is signed in
 
-export type Me = { user: { id: string; name: string; email: string }; accountId: string | null; accounts: { id: string; name: string }[] };
+export type Me = {
+  user: { id: string; name: string; email: string | null };
+  accountId: string | null;
+  accounts: { id: string; name: string }[];
+  /** Set when the app runs as an embedded studio inside a host app. */
+  studio: { tenantId: string; origin: string; theme: StudioTheme; expiresAt: string } | null;
+};
 
 export const meQuery = queryOptions({
   queryKey: ['me'],
