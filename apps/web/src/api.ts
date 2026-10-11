@@ -169,6 +169,8 @@ export type Contact = {
   createdAt: string;
   updatedAt: string;
   lastActivityAt?: string | null;
+  /** In lists: where they are in their rhythm, when the diary knows them. */
+  rhythm?: Rhythm | null;
 };
 
 export type ContactDetail = {

@@ -15,6 +15,48 @@ const PAGE = 50;
 const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 const fullName = (c: Pick<Contact, 'firstName' | 'lastName' | 'email'>) => [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email;
 
+const TINTS = [
+  ['#F3D9CC', '#6E2512'],
+  ['#DCE7F3', '#1F3F6E'],
+  ['#E3EEDF', '#2D5A22'],
+  ['#EFE3F3', '#4F2466'],
+  ['#F5ECD3', '#5C4510'],
+];
+
+/** Initials on a soft colour that stays the same for a person. */
+function Avatar({ contact: c, size = 30 }: { contact: Pick<Contact, 'firstName' | 'lastName' | 'email'>; size?: number }) {
+  const initials = ((c.firstName?.[0] ?? c.email[0] ?? '') + (c.lastName?.[0] ?? '')).toUpperCase();
+  const [bg, fg] = TINTS[[...c.email].reduce((a, ch) => a + ch.charCodeAt(0), 0) % TINTS.length]!;
+  return (
+    <span aria-hidden className="grid shrink-0 place-items-center rounded-full font-semibold" style={{ width: size, height: size, background: bg, color: fg, fontSize: size * 0.36 }}>
+      {initials}
+    </span>
+  );
+}
+
+const DAY = 86_400_000;
+
+function rhythmText(r: Rhythm | null | undefined) {
+  if (!r || !r.visits) return '–';
+  if (!r.gapDays) return r.visits === 1 ? 'One visit so far' : '–';
+  const weeks = Math.round(r.gapDays / 7);
+  return `Every ${r.gapDays < 14 ? `${r.gapDays} days` : `${weeks} weeks`}`;
+}
+
+/** Booked, due soon, overdue or drifted away, in a few words. */
+function NextVisit({ rhythm: r }: { rhythm: Rhythm | null | undefined }) {
+  if (!r || (!r.visits && !r.nextVisit)) return <span className="font-normal text-faint">–</span>;
+  if (r.nextVisit) {
+    return <span className="text-good">Booked {new Date(r.nextVisit).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })}</span>;
+  }
+  if (!r.dueAt) return <span className="text-[#1F3F6E]">New client</span>;
+  const days = Math.round((new Date(r.dueAt).getTime() - Date.now()) / DAY);
+  if (days < -60) return <span className="text-bad">Away {Math.round(-days / 30)} months</span>;
+  if (days < 0) return <span className="text-accent-ink">Due {-days === 1 ? 'yesterday' : `${-days} days ago`}</span>;
+  if (days < 7) return <span>Due {new Date(r.dueAt).toLocaleDateString('en-GB', { weekday: 'long' })}</span>;
+  return <span className="font-normal text-muted">Due in {days} days</span>;
+}
+
 export function Audience() {
   const tenant = useTenant();
   const search = useSearch({ from: '/$tenant/audience' });
@@ -25,7 +67,8 @@ export function Audience() {
   return (
     <>
       <PageTitle
-        title="Audience"
+        eyebrow="Audience"
+        title="Your clients"
         subtitle="Everyone who has booked or signed up, what they did, and whether they want news."
         actions={
           <Segmented
@@ -115,11 +158,11 @@ function People({ search, set }: { search: AudienceSearch; set: (patch: Partial<
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr className="text-xs text-muted">
-                <th className="px-5 py-3 font-medium">Person</th>
-                <th className="px-3 py-3 font-medium">News</th>
-                <th className="hidden px-3 py-3 font-medium lg:table-cell">Details</th>
-                <th className="px-3 py-3 font-medium">Last activity</th>
-                <th className="px-5 py-3 text-right font-medium">Added</th>
+                <th className="eyebrow px-5 py-3 font-medium">Client</th>
+                <th className="eyebrow hidden px-3 py-3 font-medium md:table-cell">Rhythm</th>
+                <th className="eyebrow px-3 py-3 font-medium">Next</th>
+                <th className="eyebrow px-3 py-3 font-medium">News</th>
+                <th className="eyebrow hidden px-5 py-3 text-right font-medium lg:table-cell">Last activity</th>
               </tr>
             </thead>
             <tbody>
@@ -129,18 +172,23 @@ function People({ search, set }: { search: AudienceSearch; set: (patch: Partial<
                   onClick={() => set({ contact: c.id })}
                   className={cx('cursor-pointer border-t border-rule hover:bg-soft/60', search.contact === c.id && 'bg-tint')}
                 >
-                  <td className="max-w-[280px] px-5 py-2.5">
-                    <div className="truncate font-medium">{fullName(c)}</div>
-                    <div className="truncate text-xs text-muted">{c.email}</div>
+                  <td className="max-w-[320px] px-5 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar contact={c} />
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">{fullName(c)}</div>
+                        <div className="truncate text-xs text-muted">{c.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="hidden px-3 py-2.5 text-[13px] text-[#55555C] md:table-cell">{rhythmText(c.rhythm)}</td>
+                  <td className="px-3 py-2.5 text-[13px] font-medium">
+                    <NextVisit rhythm={c.rhythm} />
                   </td>
                   <td className="px-3 py-2.5">
                     <ConsentBadge consent={c.marketingConsent} />
                   </td>
-                  <td className="hidden max-w-[260px] px-3 py-2.5 lg:table-cell">
-                    <Attributes attributes={c.attributes} limit={3} />
-                  </td>
-                  <td className="px-3 py-2.5 text-muted tabular-nums">{date(c.lastActivityAt)}</td>
-                  <td className="px-5 py-2.5 text-right text-muted tabular-nums">{date(c.createdAt)}</td>
+                  <td className="hidden px-5 py-2.5 text-right text-muted tabular-nums lg:table-cell">{date(c.lastActivityAt)}</td>
                 </tr>
               ))}
             </tbody>

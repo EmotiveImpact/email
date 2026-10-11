@@ -508,7 +508,7 @@ function FlowResults({ flow }: { flow: FlowDetail }) {
           <p className="mt-3 mb-1 text-[13px] text-muted">Nothing sent yet. Each client this flow emails appears here, with why.</p>
         ) : (
           <ul className="mt-1.5">
-            {flow.recent.map((r) => (
+            {flow.recent.slice(0, 8).map((r) => (
               <li key={`${r.email}-${r.reason}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3.5 border-t border-rule py-[9px] first:border-t-0">
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-sm font-medium">{[r.firstName, r.lastName].filter(Boolean).join(' ') || r.email}</span>

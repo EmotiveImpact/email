@@ -203,7 +203,9 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
       limit: Number(c.req.query('limit') ?? 50),
       offset: Number(c.req.query('offset') ?? 0),
     });
-    return c.json(result);
+    // Each person's rhythm from the diary, so the list can say who is due.
+    const rhythms = new Map((await engine.rhythms(tenant.id)).map((r) => [r.contactId, r]));
+    return c.json({ ...result, contacts: result.contacts.map((contact) => ({ ...contact, rhythm: rhythms.get(contact.id) ?? null })) });
   });
 
   r.post('/tenants/:id/contacts', async (c) => {
