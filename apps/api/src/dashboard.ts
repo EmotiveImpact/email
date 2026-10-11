@@ -140,7 +140,8 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
       fromEmail: tenant.fromEmail ?? undefined,
       replyTo: tenant.replyTo ?? undefined,
       sesTenant: tenant.sesTenant ?? undefined,
-      brand: { ...tenant.brand, ...brand } as never,
+      // An empty value clears that setting (a removed logo, say).
+      brand: Object.fromEntries(Object.entries({ ...tenant.brand, ...brand }).filter(([, v]) => v !== '')) as never,
     });
     return c.json(dashboardTenant(updated));
   });

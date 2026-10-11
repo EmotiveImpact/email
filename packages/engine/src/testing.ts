@@ -23,7 +23,7 @@ export async function setup(options: { transport?: Transport; fetch?: typeof fet
   const { accountId, appId } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });
   const { key } = await engine.createApiKey(appId, 'test');
   const app = await engine.authenticate(key);
-  const tenant = await engine.upsertTenant(appId, 'linden', { name: 'Linden Studio', fromEmail: 'news@linden.test' });
+  const tenant = await engine.upsertTenant(appId, 'linden', { name: 'Linden Studio', fromEmail: 'news@linden.test', brand: { address: '4 Linden Row, Leeds' } });
   const drain = () => queue.drain((name, data) => engine.runJob(name, data));
   return { db, pool, engine, transport, queue, app, accountId, appId, tenant, key, drain, close: () => pool.end() };
 }

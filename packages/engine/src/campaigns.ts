@@ -131,6 +131,7 @@ export function createCampaigns({ db, queue, defaultFrom, sendRate }: CampaignDe
     if (!campaign.subject.trim()) found.unshift('Add a subject line.');
     const typos = unknownMergeTags(`${campaign.subject} ${JSON.stringify(doc.blocks)}`);
     if (typos.length) found.push(`Unknown merge tag: {{${typos[0]}}}.`);
+    if (!tenant.brand.address?.trim()) found.push('Add your postal address in Appearance; it goes at the foot of the email.');
     if (tenant.status === 'paused') found.push('Sending is paused for this business.');
     const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
     if (audience.eligible === 0) found.push('Nobody in this audience has said yes to news.');

@@ -1,3 +1,5 @@
+/** @jsxRuntime automatic */
+/** @jsxImportSource react */
 import { Body, Button, Container, Head, Heading, Hr, Html, Img, Link, Preview, Section, Text } from '@react-email/components';
 import { render } from '@react-email/render';
 import type { CSSProperties, ReactNode } from 'react';
@@ -10,6 +12,13 @@ const HEADING_FONT: Record<EmailTheme['headingFont'], string> = {
   geist: "'Geist', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif",
   serif: "'Newsreader', Georgia, 'Times New Roman', serif",
 };
+
+/**
+ * Apple Mail and iOS load web fonts; Gmail and Outlook do not. Declaring Cal Sans across a weight
+ * range lets headings ask for bold: clients with the font draw Cal Sans as designed, and the rest
+ * fall back to a bold system face rather than a thin one.
+ */
+const FONT_FACES = `@font-face{font-family:'Cal Sans';font-style:normal;font-weight:400 800;src:url(https://fonts.gstatic.com/s/calsans/v2/fdN99sWUv3gWqXxqqRBctFsm46Zw.woff2) format('woff2');}`;
 
 const INK = '#121214';
 const MUTED = '#6B6B72';
@@ -42,7 +51,8 @@ function BlockView({ block, theme }: { block: Block; theme: EmailTheme }) {
             margin: '0 0 14px',
             color: INK,
             fontFamily: HEADING_FONT[theme.headingFont],
-            fontWeight: theme.headingFont === 'geist' ? 600 : 400,
+            fontWeight: theme.headingFont === 'serif' ? 400 : theme.headingFont === 'geist' ? 600 : 700,
+            letterSpacing: theme.headingFont === 'serif' ? undefined : '-0.01em',
             fontSize: block.level === 1 ? '30px' : '22px',
             lineHeight: 1.15,
             textAlign: block.align,
@@ -93,6 +103,7 @@ export function EmailView({ doc, theme }: { doc: EmailDoc; theme: EmailTheme }) 
     <Html lang="en-GB">
       <Head>
         <meta name="color-scheme" content="light only" />
+        {theme.headingFont === 'cal-sans' && <style>{FONT_FACES}</style>}
       </Head>
       {doc.preview && <Preview>{doc.preview}</Preview>}
       <Body style={{ margin: 0, padding: '24px 12px', background: '#F2F1EE', fontFamily: BODY_FONT }}>
@@ -101,7 +112,9 @@ export function EmailView({ doc, theme }: { doc: EmailDoc; theme: EmailTheme }) 
             {theme.logoUrl ? (
               <Img src={theme.logoUrl} alt={theme.businessName} height={36} style={{ height: '36px', width: 'auto' }} />
             ) : (
-              <Text style={{ margin: 0, color: INK, fontSize: '17px', fontFamily: HEADING_FONT[theme.headingFont] }}>{theme.businessName}</Text>
+              <Text style={{ margin: 0, color: INK, fontSize: '17px', fontWeight: theme.headingFont === 'serif' ? 400 : 700, fontFamily: HEADING_FONT[theme.headingFont] }}>
+                {theme.businessName}
+              </Text>
             )}
           </Section>
           <Section style={{ background: '#FFFFFF', borderRadius: '16px', border: '1px solid #ECEBE8', padding: '32px 36px 18px' }}>

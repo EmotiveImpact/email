@@ -136,6 +136,19 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - useSend and Plunk are AGPL-3.0: read their SES and SNS handling for ideas, but write our own code without copying.
 - pg-boss and graphile-worker both require Node 22.12 or newer.
 
+## Used in stage 3 (campaigns)
+
+| Package (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `@react-email/components` 1.0.12 | MIT | Email-safe building blocks (container, button, image, preview text) |
+| `@react-email/render` 2.1.0 | MIT | HTML and plain text from the same blocks; plain text via `html-to-text` (MIT) |
+| `@maily-to/core` 0.3.7 | MIT (per repo; npm field blank) | Considered. React 19 ready, but beta and heavy (Tiptap tree). Not used (D34) |
+| `easy-email-editor` 4.17.1 | MIT | Considered. Still peers React ^18.2. Not used |
+| `@usewaypoint/email-builder` 0.0.9 | MIT | Considered. Peers React up to 18. Its block list shaped ours |
+| `grapesjs-mjml` 1.0.8 and `mjml` 5.4.1 | BSD-3-Clause, MIT | Kept as the route to a pro editor with columns (D34) |
+| `@tiptap/react` 3.31.4 | MIT | Kept for a later rich-text toolbar (D35) |
+| Listmonk campaign pacing | AGPL-3.0 | Studied only: rate-limited sending per campaign. Our pacing uses pg-boss `startAfter` (D38) |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates

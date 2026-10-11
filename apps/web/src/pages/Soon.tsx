@@ -1,11 +1,6 @@
 import { Card, PageTitle } from '../components/ui.tsx';
 
 const AREAS = {
-  campaigns: {
-    title: 'Campaigns',
-    lead: 'Write a newsletter once, see which days are quiet, and send it to the clients most likely to book.',
-    points: ['Drag-and-drop editor that looks right in every inbox', 'Calendar shaded by how full your diary is', 'Bookings and revenue counted for each send'],
-  },
   flows: {
     title: 'Flows',
     lead: 'Emails that send themselves when something happens in your diary.',

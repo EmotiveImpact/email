@@ -10,7 +10,8 @@ Email for appointment businesses, sent through Amazon SES. One engine serves thr
 | Path | What it is |
 |---|---|
 | `packages/db` | Postgres schema (Drizzle), migrations, ids |
-| `packages/engine` | Sending: validation, consent and suppression rules, queue, SES transport, SES events, webhooks, unsubscribe |
+| `packages/content` | Email content: the block format, the React Email renderer, merge tags |
+| `packages/engine` | Sending: validation, consent and suppression rules, queue, SES transport, SES events, webhooks, unsubscribe, audience and segments, campaigns |
 | `packages/sdk` | TypeScript client for the API and a webhook verifier |
 | `apps/api` | Hono API: `/v1` for apps, `/ses/events` for SES, `/u/:token` unsubscribe pages, `/auth` sign-in (Better Auth), `/app` for the web app |
 | `apps/web` | The app: Vite, React 19, TanStack Router and Query, Tailwind 4 |
@@ -26,7 +27,7 @@ createdb -O platform platform && createdb -O platform platform_test
 pnpm install
 cp .env.example .env
 pnpm db:migrate
-pnpm db:seed          # a demo studio, sixty clients, a month of email, and two API keys
+pnpm db:seed          # a demo studio, sixty clients, a month of email, three campaigns and two API keys
 pnpm dev              # API on :8787, app on :5173
 ```
 
@@ -54,8 +55,9 @@ Marketing email (`stream: 'marketing'`) only goes to contacts with recorded cons
 ## SES setup
 
 1. Verify the sending domain in SES (eu-west-2) and create a configuration set, `platform-events`.
-2. Add an event destination to the set: SNS topic, events Send, Delivery, Bounce, Complaint, Reject, Delivery delay, Rendering failure.
-3. Subscribe `https://<api>/ses/events` to the topic over HTTPS. The API confirms the subscription itself. Set `SES_TOPIC_ARN` to only accept that topic.
+2. Add an event destination to the set: SNS topic, events Send, Delivery, Bounce, Complaint, Reject, Delivery delay, Rendering failure, Open and Click. Open and click tracking also needs a custom tracking domain on the set (or SES's default one).
+3. Set `SES_SEND_RATE` to the account's maximum send rate; campaigns pace themselves to it.
+4. Subscribe `https://<api>/ses/events` to the topic over HTTPS. The API confirms the subscription itself. Set `SES_TOPIC_ARN` to only accept that topic.
 
 ## Tests
 

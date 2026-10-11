@@ -137,7 +137,10 @@ describe('campaigns', () => {
   });
 
   it('refuses to send something unfinished', async () => {
-    const { engine, tenant, content } = await studio();
+    const { engine, tenant, content, appId } = await studio();
+    const noAddress = await engine.upsertTenant(appId, 'harbour', { name: 'Harbour Spa' });
+    const fromHarbour = await engine.createCampaign(noAddress.id, { subject: 'Hi', content });
+    expect((await engine.campaignDetail(noAddress.id, fromHarbour.id)).problems).toContain('Add your postal address in Appearance; it goes at the foot of the email.');
     const noSubject = await engine.createCampaign(tenant.id, { content });
     await failsWith(engine.scheduleCampaign(tenant.id, noSubject.id), 'not_ready');
     const typo = await engine.createCampaign(tenant.id, { subject: 'Hi {{frist_name}}', content });

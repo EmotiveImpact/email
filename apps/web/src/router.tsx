@@ -1,11 +1,13 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, ApiError, meQuery, messagesQuery, segmentsQuery, tenantsQuery } from './api.ts';
+import { activityQuery, ApiError, campaignQuery, campaignsQuery, meQuery, messagesQuery, segmentsQuery, tenantsQuery } from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
 import { Audience, type AudienceSearch } from './pages/Audience.tsx';
+import { CampaignPage } from './pages/CampaignEditor.tsx';
+import { Campaigns } from './pages/Campaigns.tsx';
 import { Developers } from './pages/Developers.tsx';
 import { Home } from './pages/Home.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
@@ -77,7 +79,18 @@ const sending = createRoute({
     Promise.all([withActivity({ context, params }), context.queryClient.ensureQueryData(messagesQuery(params.tenant, 'all'))]),
   component: Sending,
 });
-const campaigns = createRoute({ getParentRoute: () => tenant, path: 'campaigns', component: () => <Soon area="campaigns" /> });
+const campaigns = createRoute({
+  getParentRoute: () => tenant,
+  path: 'campaigns',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(campaignsQuery(params.tenant)),
+  component: Campaigns,
+});
+const campaign = createRoute({
+  getParentRoute: () => tenant,
+  path: 'campaigns/$campaign',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(campaignQuery(params.tenant, params.campaign)),
+  component: CampaignPage,
+});
 const flows = createRoute({ getParentRoute: () => tenant, path: 'flows', component: () => <Soon area="flows" /> });
 const audience = createRoute({
   getParentRoute: () => tenant,
@@ -101,7 +114,7 @@ const routeTree = root.addChildren([
   index,
   signIn,
   setup,
-  tenant.addChildren([home, sending, campaigns, flows, audience, segment, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, audience, segment, developers, appearance]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

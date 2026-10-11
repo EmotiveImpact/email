@@ -20,6 +20,7 @@ export async function boot(env: NodeJS.ProcessEnv = process.env) {
       publicUrl: env.PUBLIC_URL ?? `http://localhost:${port}`,
       signingSecret,
       defaultFrom: env.DEFAULT_FROM ?? 'hello@example.com',
+      sendRate: Number(env.SES_SEND_RATE ?? 10) || 10,
     },
   });
   const webOrigin = env.WEB_ORIGIN ?? 'http://localhost:5173';
