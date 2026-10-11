@@ -101,7 +101,11 @@ function BlockView({ block, theme, data }: { block: Block; theme: EmailTheme; da
       return <div style={{ height: { s: 12, m: 24, l: 44 }[block.size] }} />;
     case 'slots': {
       const slots = data.slots ?? [];
-      if (!slots.length) return null;
+      if (!slots.length) {
+        // No free times known (a diary that is not connected, or a full week): a plain way to book.
+        if (!theme.bookingUrl) return null;
+        return <BlockView block={{ id: block.id, type: 'button', label: 'Choose a time', url: theme.bookingUrl, align: block.align }} theme={theme} data={data} />;
+      }
       return (
         <Section style={{ margin: '4px 0 18px', textAlign: block.align }}>
           {slots.map((slot) => (

@@ -117,6 +117,10 @@ export function createApi(options: ApiOptions) {
     });
   });
 
+  // Removes a client and everything personal about them (UK GDPR erasure). Their address stays
+  // suppressed if it bounced or unsubscribed, so it is never emailed again by mistake.
+  v1.post('/contacts/erase', async (c) => c.json(await engine.eraseContact(c.var.app, await body(c))));
+
   // The diary: bookings and free time from your booking system. Flows use them to time emails.
   v1.put('/appointments', async (c) => {
     const row = await engine.upsertAppointment(c.var.app, await body(c));
@@ -132,6 +136,8 @@ export function createApi(options: ApiOptions) {
       bookedAt: row.bookedAt,
     });
   });
+
+  v1.post('/appointments/batch', async (c) => c.json(await engine.upsertAppointments(c.var.app, await body(c))));
 
   v1.put('/availability', async (c) => c.json(await engine.setAvailability(c.var.app, await body(c))));
 

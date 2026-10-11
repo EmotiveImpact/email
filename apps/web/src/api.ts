@@ -676,3 +676,30 @@ export const useRenameAsset = (tenant: string) =>
   useAssetMutation(tenant, ({ id, name }: { id: string; name: string }) => request<Asset>(`${assetPath(tenant)}/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }));
 
 export const useDeleteAsset = (tenant: string) => useAssetMutation(tenant, (id: string) => request<void>(`${assetPath(tenant)}/${id}`, { method: 'DELETE' }));
+
+// ---------------------------------------------------------------- apps and API keys
+
+export type ApiKey = { id: string; name: string; prefix: string; createdAt: string; lastUsedAt: string | null };
+export type AccountApp = { id: string; name: string; direct: boolean; embedOrigins: string[]; keys: ApiKey[] };
+
+export const appsQuery = () => queryOptions({ queryKey: ['apps'], queryFn: () => request<AccountApp[]>('/app/accounts/current/apps') });
+
+function useAppsMutation<I, O>(fn: (input: I) => Promise<O>) {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries({ queryKey: ['apps'] }) });
+}
+
+export const useAddApp = () =>
+  useAppsMutation((name: string) => request<AccountApp>('/app/accounts/current/apps', { method: 'POST', body: JSON.stringify({ name }) }));
+
+export const useAddKey = () =>
+  useAppsMutation(({ appId, name }: { appId: string; name: string }) =>
+    request<{ id: string; key: string }>(`/app/accounts/current/apps/${appId}/keys`, { method: 'POST', body: JSON.stringify({ name }) }),
+  );
+
+export const useRevokeKey = () => useAppsMutation((keyId: string) => request<void>(`/app/accounts/current/keys/${keyId}`, { method: 'DELETE' }));
+
+export const useSetOrigins = () =>
+  useAppsMutation(({ appId, origins }: { appId: string; origins: string[] }) =>
+    request<{ origins: string[] }>(`/app/accounts/current/apps/${appId}/origins`, { method: 'PUT', body: JSON.stringify({ origins }) }),
+  );

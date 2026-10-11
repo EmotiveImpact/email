@@ -138,6 +138,40 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     return c.json({ accountId: c.req.param('accountId') });
   });
 
+  // ---------------------------------------------------------------- apps and API keys
+
+  /** Keys reach every business of an app, so only the account's owners and admins handle them. */
+  const accountAdmin = async (c: { var: Env['Variables'] }) => {
+    const [row] = await db
+      .select({ role: members.role })
+      .from(members)
+      .where(and(eq(members.organizationId, c.var.accountId), eq(members.userId, c.var.viewer.id)));
+    if (!row || !['owner', 'admin'].includes(row.role)) throw new PlatformError('forbidden', 'Only the account’s owners and admins can manage apps and keys.', 403);
+  };
+
+  r.get('/accounts/current/apps', async (c) => c.json(await engine.listApps(c.var.accountId)));
+
+  r.post('/accounts/current/apps', async (c) => {
+    await accountAdmin(c);
+    return c.json(await engine.addApp(c.var.accountId, await json(c)), 201);
+  });
+
+  r.put('/accounts/current/apps/:appId/origins', async (c) => {
+    await accountAdmin(c);
+    return c.json({ origins: await engine.setAppEmbedOrigins(c.var.accountId, c.req.param('appId'), await json(c)) });
+  });
+
+  r.post('/accounts/current/apps/:appId/keys', async (c) => {
+    await accountAdmin(c);
+    return c.json(await engine.addApiKey(c.var.accountId, c.req.param('appId'), await json(c)), 201);
+  });
+
+  r.delete('/accounts/current/keys/:keyId', async (c) => {
+    await accountAdmin(c);
+    await engine.revokeApiKey(c.var.accountId, c.req.param('keyId'));
+    return c.body(null, 204);
+  });
+
   // ---------------------------------------------------------------- businesses
 
   r.get('/tenants', async (c) => {

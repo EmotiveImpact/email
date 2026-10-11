@@ -97,7 +97,12 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
     const [row] = await db
       .insert(contacts)
       .values({ id: newId('con'), tenantId: tenant.id, email, externalId: input.contactExternalId ?? null, firstName: input.firstName ?? null, lastName: input.lastName ?? null })
-      .onConflictDoUpdate({ target: [contacts.tenantId, contacts.email], set: { updatedAt: new Date() } })
+      .onConflictDoUpdate({
+        target: [contacts.tenantId, contacts.email],
+        // A client first seen by email (say from an import) learns the host app's id here, so later
+        // calls by externalId, erasure included, find them.
+        set: { updatedAt: new Date(), externalId: sql`coalesce(${contacts.externalId}, excluded.external_id)` },
+      })
       .returning();
     return row!;
   }
@@ -138,6 +143,26 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
       await db.insert(appEvents).values({ id: newId('evt'), tenantId: tenant.id, contactId: contact.id, name: 'booking.cancelled', properties, occurredAt: new Date() });
     }
     return row!;
+  }
+
+  /**
+   * Many bookings at once, for bringing in history or catching up after an outage. Each one is
+   * saved on its own, so one bad row does not stop the rest; the errors say which rows to fix.
+   */
+  async function upsertAppointments(app: { id: string }, raw: unknown) {
+    const input = parse(z.object({ tenant: z.string().min(1), appointments: z.array(z.record(z.string(), z.unknown())).min(1).max(500) }), raw);
+    await getTenant(app.id, input.tenant);
+    let saved = 0;
+    const errors: { index: number; message: string }[] = [];
+    for (const [index, appointment] of input.appointments.entries()) {
+      try {
+        await upsertAppointment(app, { ...appointment, tenant: input.tenant });
+        saved++;
+      } catch (error) {
+        errors.push({ index, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return { saved, errors };
   }
 
   /** Replaces the free time stored for a window with what the host app sees now. */
@@ -308,5 +333,5 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
     return due.map((r) => ({ ...r, contact: byId.get(r.contactId)! }));
   }
 
-  return { upsertAppointment, setAvailability, rhythms, rhythmFor, diaryDays, slotsOn, attribution, attributedBookings, appointmentsFor, dueSoon };
+  return { upsertAppointment, upsertAppointments, setAvailability, rhythms, rhythmFor, diaryDays, slotsOn, attribution, attributedBookings, appointmentsFor, dueSoon };
 }

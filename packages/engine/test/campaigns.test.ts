@@ -40,10 +40,10 @@ describe('campaigns', () => {
     const { engine, tenant } = await studio();
     const draft = await engine.createCampaign(tenant.id, {});
     expect(draft.status).toBe('draft');
-    expect(draft.name).toBe('Untitled campaign');
+    expect(draft).toMatchObject({ name: 'Space this week', subject: 'A few spaces this week, {{first_name|there}}' });
     const detail = await engine.campaignDetail(tenant.id, draft.id);
-    // The starter has a button with no link and no subject yet.
-    expect(detail.problems).toContain('Add a subject line.');
+    // Linden has no booking link, so the starter's button has nowhere to go yet.
+    expect(detail.problems).not.toContain('Add a subject line.');
     expect(detail.problems.some((p) => p.includes('button needs a link'))).toBe(true);
     expect(detail.audience).toEqual({ total: 3, noConsent: 1, suppressed: 0, eligible: 2 });
   });

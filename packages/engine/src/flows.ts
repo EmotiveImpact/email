@@ -89,11 +89,11 @@ export const FLOW_LIBRARY: Record<
         {
           id: 'r2',
           type: 'text',
-          text: 'Hi {{first_name|there}},\n\nIt has been {{weeks_since_visit}} weeks since your {{last_service|last visit}}, which is about when you usually come back. These times are free:',
+          text: 'Hi {{first_name|there}},\n\nIt has been {{weeks_since_visit}} weeks since your {{last_service|last visit}}, around the time you usually come back. Pick a time that suits you.',
           align: 'left',
         },
         { id: 'r3', type: 'slots', align: 'left' },
-        { id: 'r4', type: 'text', text: 'Or [see every free time]({{booking_url}}).\n\nSee you soon,\n{{business_name}}', align: 'left' },
+        { id: 'r4', type: 'text', text: 'See you soon,\n{{business_name}}', align: 'left' },
       ],
     }),
   },
@@ -534,6 +534,8 @@ export function createFlows({ db, queue, senderFor, sendRate, diary, emailsLeft 
       .set({ ...next, settings, live, updatedAt: new Date() })
       .where(eq(flows.id, id))
       .returning();
+    // Switched on: look for clients now (inside sending hours) rather than at the next hourly tick.
+    if (live && !current.live) await queue.enqueue('run-flows', { tenantId });
     return describe(tenant, row!);
   }
 

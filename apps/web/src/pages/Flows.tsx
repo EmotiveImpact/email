@@ -141,8 +141,22 @@ function FlowsScreen({ flows, selected }: { flows: Flow[]; selected: string }) {
       <div className="flex min-w-0 flex-col gap-4">
         {diary && !diary.connected && (
           <Notice>
-            <strong>Your diary is not connected yet.</strong> Flows need your bookings and free times. Saleane and Caleane send them for you; other booking
-            systems use <code className="font-mono text-xs">PUT /v1/appointments</code> and <code className="font-mono text-xs">/v1/availability</code>.
+            <strong>Free times are not coming through yet.</strong> Flows still go from the visits you have brought in, with a button to your booking page.{' '}
+            {inStudio() ? (
+              'Your booking system sends free times once it is connected.'
+            ) : (
+              <>
+                Keep them current by{' '}
+                <Link to="/$tenant/audience" params={{ tenant: tenant.id }} search={{ import: 'visits' }} className="font-semibold underline">
+                  bringing in your latest visits
+                </Link>
+                , or connect your booking system from{' '}
+                <Link to="/$tenant/developers" params={{ tenant: tenant.id }} className="font-semibold underline">
+                  Developers
+                </Link>{' '}
+                to offer real free times.
+              </>
+            )}
           </Notice>
         )}
         {!tenant.brand.bookingUrl && (

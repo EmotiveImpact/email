@@ -376,7 +376,7 @@ function Results({ campaign }: { campaign: CampaignDetail }) {
                 <Stat label="Bounced" value={nf.format(s.bounced)} sub={rate(s.bounced, s.total)} tone={s.total && s.bounced / s.total > 0.05 ? 'bad' : undefined} />
                 <Stat label="Marked as spam" value={nf.format(s.complained)} sub={rate(s.complained, s.total)} tone={s.complained > 0 ? 'bad' : undefined} />
               </div>
-              {(campaign.skippedNoConsent || campaign.skippedSuppressed) && (
+              {((campaign.skippedNoConsent ?? 0) > 0 || (campaign.skippedSuppressed ?? 0) > 0) && (
                 <Card className="px-5 py-4 text-[13px] leading-relaxed text-muted">
                   Left out to protect your sending: {nf.format(campaign.skippedNoConsent ?? 0)} without consent for news, and{' '}
                   {nf.format(campaign.skippedSuppressed ?? 0)} who unsubscribed or whose address bounced before.
