@@ -288,6 +288,7 @@ export function createEngine(deps: {
     importClients: onboardingApi.importClients,
     setConsent,
     square: deps.square ? new SquareClient(deps.square, doFetch) : null,
+    doFetch,
     secret: config.signingSecret,
     webhookUrl: `${config.publicUrl}/connect/square/webhook`,
   });

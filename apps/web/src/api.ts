@@ -717,10 +717,11 @@ export const useSetOrigins = () =>
 
 // ---------------------------------------------------------------- booking system (D132)
 
+export type DiaryProvider = 'square' | 'phorest';
 export type DiaryConnection = {
-  available: { square: boolean };
+  available: { square: boolean; phorest: boolean };
   connection: {
-    provider: 'square';
+    provider: DiaryProvider;
     locationName: string | null;
     consent: 'granted' | 'unknown';
     status: 'active' | 'error';
@@ -761,6 +762,12 @@ export const connectSquare = async (tenant: string, consent: 'granted' | 'unknow
 export const useFinishSquare = (tenant: string) =>
   useConnectionAction(tenant, (input: { code: string; state: string }) =>
     request<DiaryConnection>(`${connectionPath(tenant)}/square/finish`, { method: 'POST', body: JSON.stringify(input) }),
+  );
+export type PhorestLogin = { username: string; password: string; businessId: string; region: 'eu' | 'us'; branchId?: string };
+/** Answers with the connection, or with the branches to choose from when there are several. */
+export const useConnectPhorest = (tenant: string) =>
+  useConnectionAction(tenant, (input: PhorestLogin) =>
+    request<DiaryConnection | { branches: { id: string; name: string }[] }>(`${connectionPath(tenant)}/phorest`, { method: 'POST', body: JSON.stringify(input) }),
   );
 export const useSyncDiary = (tenant: string) =>
   useConnectionAction(tenant, (_: void) => request<DiaryConnection>(`${connectionPath(tenant)}/sync`, { method: 'POST', body: '{}' }));

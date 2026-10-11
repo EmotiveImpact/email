@@ -600,6 +600,13 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     return c.json(await engine.finishSquareConnect(tenant.id, c.var.viewer.id, String(body.code ?? ''), String(body.state ?? '')));
   });
 
+  /** Connects Phorest with the login Phorest issued to the salon. May answer with branches to pick from. */
+  r.post('/tenants/:id/diary-connection/phorest', async (c) => {
+    const tenant = await tenantOf(c);
+    await ownerOnly(c, 'connect a booking system');
+    return c.json(await engine.connectPhorest(tenant.id, await json(c)));
+  });
+
   r.post('/tenants/:id/diary-connection/sync', async (c) => {
     const tenant = await tenantOf(c);
     await ownerOnly(c, 'sync the booking system');

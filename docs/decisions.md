@@ -677,3 +677,28 @@ D131 named the biggest gap: a salon whose booking system does not talk to us get
 
 ### What Edem needs to do
 Create a Square developer application and put its three keys in the production secret (production.md, step 10). Until then, "Connect Square" shows as coming soon.
+
+## Stage 15: Phorest, the second booking system
+
+Edem chose "Connect booking systems" for salons whose diary we could not see (D131). Square came first (D132); Phorest is the system most UK and Irish salons we are aimed at already use.
+
+### D138. Phorest connects with a login the salon asks Phorest for
+- **Picked:** the owner emails api-requests@phorest.com from the address on their Phorest account, gets an API username, password and business ID, and pastes them into Settings, Booking system. We check the login by listing the business's branches; with several, the owner picks which salon this business is. The login is encrypted at rest like Square's tokens (D133).
+- **Why:** Phorest has no sign-in-with-Phorest (OAuth) and no app marketplace; its documented route is a login issued per salon on request. One email from the owner is a small price for a diary that fills itself, and the page walks them through it.
+- **Considered:** waiting for a Phorest partnership. Worth asking for once salons use it, since it would remove the email step; nothing in the product needs to change when it comes.
+
+### D139. Phorest clients' own marketing choice is followed
+- **Picked:** a Phorest client marked as agreeing to email marketing comes in agreeing, recorded as coming from Phorest; one marked as not agreeing does not, and loses a yes that came from Phorest before. A yes given another way stays, as with Square (D135). Banned and deleted clients are left out. Client changes are read every 15 minutes too, so a change of mind reaches us without a new booking.
+- **Why:** unlike Square, Phorest keeps each client's own answer, which is better evidence than the owner's word for everyone. So there is no consent question when connecting Phorest.
+
+### D140. A Phorest visit counts once
+- **Picked:** Phorest stores each service in a visit as its own appointment. We join them by booking into one visit (services "Cut + Colour", prices added, from the first start to the last end). Times are read in the branch's own time zone, and prices in the branch's currency.
+- **Why:** counted separately, a cut and colour on one day would look like two visits a few minutes apart and wreck the client's rhythm, so "due back" would fire at the wrong time.
+- **Known limit:** Phorest's API has no no-show state, so a past booking that was not checked in counts as a visit. Square does mark no-shows.
+
+### D141. One booking system at a time, and plain words when one is out of reach
+- **Picked:** a business reads from one booking system. Connecting a second one says which is connected and asks to disconnect it first. If Square or Phorest cannot be reached, the owner reads "could not be reached just now" rather than an error code.
+- **Why:** two systems feeding one diary would double-count visits and free times.
+
+### What Edem needs to do
+Nothing for Phorest: salons request their own login. A partnership with Phorest would remove that step later.

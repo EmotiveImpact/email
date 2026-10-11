@@ -89,7 +89,7 @@ describe('connecting Square', () => {
     const ctx = await setup();
     close = ctx.close;
     expect(() => ctx.engine.squareConnectUrl(ctx.tenant.id, 'user-1', 'unknown')).toThrow(PlatformError);
-    expect(await ctx.engine.diaryConnection(ctx.tenant.id)).toEqual({ available: { square: false }, connection: null });
+    expect(await ctx.engine.diaryConnection(ctx.tenant.id)).toEqual({ available: { square: false, phorest: true }, connection: null });
   });
 });
 

@@ -268,6 +268,16 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | Fresha and Timely | Docs | Checked; no self-serve public API found |
 | Cal.com, Easy!Appointments | AGPL-3.0 / GPL-3.0 | Not used; booking apps rather than connectors (studied for D55) |
 
+## Stage 15: Phorest
+
+| Project | Licence | Use |
+| --- | --- | --- |
+| Phorest third-party API docs | Docs | Followed for login, branches, appointments (31 days per call), client batch, client changes, services and availability |
+| Phorest public SDKs | None found | Checked; Phorest publishes an OpenAPI description but no Node client. A 190-line client keeps it testable with a fake |
+| Shortcuts (salon software) API | Docs | Checked as a later connector: documented REST API, credentials issued on request |
+| Fresha data connector | Docs | Checked: a paid one-way copy into Snowflake, not an API we can read |
+| Timely, Treatwell, Booksy | Docs | Checked: no self-serve public API confirmed |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -324,3 +334,10 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://developer.squareup.com/docs/webhooks/step3validate
 - https://developer.phorest.com/
 - https://www.npmjs.com/package/square
+- https://developer.phorest.com/docs/getting-started
+- https://developer.phorest.com/reference/getappointments.md
+- https://developer.phorest.com/reference/getclients.md
+- https://developer.phorest.com/reference/checkappointmentavailability.md
+- https://phorest.helpjuice.com/integrating-3rd-party-e-commerce-solutions
+- https://github.com/shortcutssoftware/sc-ols-examples
+- https://www.fresha.com/help-center/knowledge-base/reports/432-data-connector-overview

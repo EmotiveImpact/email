@@ -1,0 +1,1 @@
+ALTER TABLE "diary_connections" ADD COLUMN "options" jsonb DEFAULT '{}'::jsonb NOT NULL;

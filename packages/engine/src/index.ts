@@ -21,4 +21,5 @@ export * from './billing.ts';
 export * from './onboarding.ts';
 export * from './square.ts';
 export * from './seal.ts';
-export { FIRST_SYNC_DAYS } from './connections.ts';
+export * from './phorest.ts';
+export { CONSENT_SOURCES, FIRST_SYNC_DAYS } from './connections.ts';

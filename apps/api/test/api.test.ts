@@ -1,5 +1,5 @@
 import { encodePng, type LogTransport } from '@platform/engine';
-import { fakeSquare, setup, SQUARE_TEST_CONFIG } from '@platform/engine/testing';
+import { fakePhorest, fakeSquare, PHOREST_TEST_LOGIN, setup, SQUARE_TEST_CONFIG } from '@platform/engine/testing';
 import { Webhook } from 'standardwebhooks';
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq, members, messages, newId } from '@platform/db';
@@ -614,7 +614,7 @@ describe('connecting a booking system', () => {
     const member = await signedIn(ctx, { role: 'member', email: 'member@test.dev' });
     const path = `/app/tenants/${ctx.tenant.id}/diary-connection`;
 
-    expect(await (await member('GET', path)).json()).toEqual({ available: { square: true }, connection: null });
+    expect(await (await member('GET', path)).json()).toEqual({ available: { square: true, phorest: true }, connection: null });
     expect((await member('POST', `${path}/square`, { consent: 'granted' })).status).toBe(403);
     expect((await owner('POST', `${path}/square`, {})).status).toBe(422);
     const { url } = (await (await owner('POST', `${path}/square`, { consent: 'granted' })).json()) as { url: string };
@@ -637,6 +637,20 @@ describe('connecting a booking system', () => {
 
     expect((await member('DELETE', path)).status).toBe(403);
     expect((await owner('DELETE', path)).status).toBe(204);
+  });
+
+  it('lets owners connect Phorest with the login Phorest issued', async () => {
+    const phorest = fakePhorest({ branches: [{ branchId: 'B1', name: 'Fern & Fable, Leeds' }], appointments: [], clients: [], services: [] });
+    const ctx = await start({ fetch: phorest.fetch });
+    const owner = await signedIn(ctx);
+    const member = await signedIn(ctx, { role: 'member', email: 'member@test.dev' });
+    const path = `/app/tenants/${ctx.tenant.id}/diary-connection/phorest`;
+    expect((await member('POST', path, PHOREST_TEST_LOGIN)).status).toBe(403);
+    expect((await owner('POST', path, { ...PHOREST_TEST_LOGIN, password: 'wrong' })).status).toBe(422);
+    const done = await owner('POST', path, PHOREST_TEST_LOGIN);
+    const body = await done.json();
+    expect(body).toMatchObject({ connection: { provider: 'phorest', locationName: 'Fern & Fable, Leeds' } });
+    expect(JSON.stringify(body)).not.toContain('secret');
   });
 
   it('accepts only signed Square webhooks', async () => {

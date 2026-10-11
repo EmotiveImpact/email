@@ -1,7 +1,7 @@
 /** Test helpers: a fresh, migrated Postgres database and an engine with in-memory queue and transport. */
 import { createDb, sql } from '@platform/db';
 import { migrateDb } from '@platform/db/migrate';
-import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type PaymentProvider, type Provisioner, type SquareBooking, type SquareConfig, type SquareCustomer, type Transport } from './index.ts';
+import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type PaymentProvider, type Provisioner, type PhorestAppointment, type PhorestBranch, type PhorestClient, type PhorestService, type SquareBooking, type SquareConfig, type SquareCustomer, type Transport } from './index.ts';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://platform:platform@localhost:5432/platform_test';
@@ -112,3 +112,59 @@ export function fakeSquare(data: {
 }
 
 export const SQUARE_TEST_CONFIG: SquareConfig = { appId: 'sq0idp-test', appSecret: 'sq0csp-secret', webhookSignatureKey: 'hook-key', environment: 'production' };
+
+/**
+ * A stand-in for Phorest's API with one business and its branches. The login is "global/owner@fern.test"
+ * with "secret". `calls` records what was asked; `data` can be changed between reads.
+ */
+export function fakePhorest(data: {
+  branches: PhorestBranch[];
+  appointments: PhorestAppointment[];
+  clients: PhorestClient[];
+  services: PhorestService[];
+  free?: string[];
+  /** Clients returned as changed since the last read. */
+  changed?: PhorestClient[];
+}) {
+  const calls: { method: string; path: string; query: URLSearchParams; body: unknown }[] = [];
+  const state = { fail: null as null | number };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const paged = (key: string, rows: unknown[], query: URLSearchParams) => {
+    const size = Number(query.get('size') ?? 20);
+    const page = Number(query.get('page') ?? 0);
+    return json({ _embedded: { [key]: rows.slice(page * size, (page + 1) * size) }, page: { size, number: page, totalElements: rows.length, totalPages: Math.ceil(rows.length / size) } });
+  };
+  const fetch = (async (input: string | URL | Request, init: RequestInit = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+    if (!url.host.includes('phorest.com')) return json({ ok: true });
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    const path = url.pathname.replace('/third-party-api-server', '');
+    calls.push({ method: init.method ?? 'GET', path, query: url.searchParams, body });
+    const expected = `Basic ${Buffer.from('global/owner@fern.test:secret').toString('base64')}`;
+    if (state.fail || new Headers(init.headers).get('authorization') !== expected) return json({ detail: 'Unauthorized' }, state.fail ?? 401);
+    if (!path.startsWith('/api/business/BIZ/')) return json({ detail: 'Business not found' }, 404);
+    const rest = path.slice('/api/business/BIZ'.length);
+    if (rest === '/branch') return paged('branches', data.branches, url.searchParams);
+    if (/^\/branch\/[^/]+\/appointment$/.test(rest)) {
+      const from = url.searchParams.get('from_date')!;
+      const to = url.searchParams.get('to_date')!;
+      return paged('appointments', data.appointments.filter((a) => a.appointmentDate >= from && a.appointmentDate <= to), url.searchParams);
+    }
+    if (/^\/branch\/[^/]+\/service$/.test(rest)) return paged('services', data.services, url.searchParams);
+    if (rest === '/client-batch') {
+      const ids = url.searchParams.getAll('client_id');
+      return paged('clients', data.clients.filter((c) => ids.includes(c.clientId)), url.searchParams);
+    }
+    if (rest === '/client') return paged('clients', data.changed ?? [], url.searchParams);
+    if (/^\/branch\/[^/]+\/appointments\/availability$/.test(rest)) {
+      const start = new Date(body.startTime).getTime();
+      const end = new Date(body.endTime).getTime();
+      const inside = (data.free ?? []).filter((t) => new Date(t).getTime() >= start && new Date(t).getTime() < end);
+      return json({ data: inside.map((startTime) => ({ startTime, clientSchedules: [{ serviceSchedules: [{ serviceId: body.clientServiceSelections[0].serviceSelections[0].serviceId, staffId: 'S1', startTime }] }] })) });
+    }
+    return json({ detail: 'Not found' }, 404);
+  }) as typeof globalThis.fetch;
+  return { fetch, calls, state, data };
+}
+
+export const PHOREST_TEST_LOGIN = { username: 'global/owner@fern.test', password: 'secret', businessId: 'BIZ', region: 'eu' as const };
