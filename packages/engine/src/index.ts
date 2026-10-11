@@ -13,3 +13,5 @@ export * from './flows.ts';
 export * from './slots.ts';
 export { sampleValues } from './campaigns.ts';
 export * from './insights.ts';
+export * from './images.ts';
+export * from './assets.ts';

@@ -21,11 +21,13 @@ import {
 import { and, desc, eq, inArray, isNull, or, sql } from '@platform/db';
 import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
+import { createAssets } from './assets.ts';
 import { createAudience } from './audience.ts';
 import { createCampaigns } from './campaigns.ts';
 import { createDiary } from './diary.ts';
 import { createDomains } from './domains.ts';
 import { createFlows } from './flows.ts';
+import { PgAssetStore, SampleImageGenerator, type AssetStore, type ImageGenerator } from './images.ts';
 import { createInsights } from './insights.ts';
 import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
@@ -44,6 +46,8 @@ export type EngineConfig = {
   sendRate?: number;
   /** Only send from domains a business has verified. On in production; off for local work. */
   verifiedDomainsOnly?: boolean;
+  /** Generated pictures each business may make a day. Default 40. */
+  imagesPerDay?: number;
 };
 
 /** Pause a business before SES would act on the whole account: lower than SES's review levels. */
@@ -223,6 +227,10 @@ export function createEngine(deps: {
   fetch?: typeof fetch;
   provisioner?: Provisioner;
   resolveTxt?: (name: string) => Promise<string[][]>;
+  /** Where picture files live. Default: Postgres, served by the API. */
+  assetStore?: AssetStore;
+  /** Makes pictures from prompts. Default: soft sample pictures, no provider needed. */
+  imageGenerator?: ImageGenerator;
 }) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
@@ -238,6 +246,12 @@ export function createEngine(deps: {
   const sendRate = config.sendRate ?? 10;
   const diary = createDiary(db, getTenant);
   const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary });
+  const assetsApi = createAssets({
+    db,
+    store: deps.assetStore ?? new PgAssetStore(db, config.publicUrl),
+    generator: deps.imageGenerator ?? new SampleImageGenerator(),
+    imagesPerDay: config.imagesPerDay ?? 40,
+  });
   const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows });
   const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots });
 
@@ -835,6 +849,7 @@ export function createEngine(deps: {
     messageStats,
     dailyCounts,
     ...insights,
+    ...assetsApi,
     runJob,
   };
 }

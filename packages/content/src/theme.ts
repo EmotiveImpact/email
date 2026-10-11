@@ -29,3 +29,19 @@ export function themeFromBrand(
     headingFont: brand.headingFont ?? 'cal-sans',
   };
 }
+
+/** Mixes `hex` towards `target` by `amount` (0 keeps it, 1 becomes the target). */
+export function mixHex(hex: string, target: string, amount: number) {
+  const parse = (h: string) => {
+    const n = Number.parseInt(h.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const [a, b] = [parse(hex), parse(target)];
+  return `#${a.map((v, i) => Math.round(v + (b[i]! - v) * amount).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+}
+
+/** The accent with a dark shade and a pale tint, for designs and generated pictures. */
+export function brandShades(businessName: string, accent?: string) {
+  const theme = themeFromBrand(businessName, { accent });
+  return { businessName, accent: theme.accent, onAccent: theme.onAccent, deep: mixHex(theme.accent, '#000000', 0.6), tint: mixHex(theme.accent, '#FFFFFF', 0.88) };
+}

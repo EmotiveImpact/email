@@ -1,7 +1,21 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, ApiError, campaignQuery, campaignsQuery, flowQuery, flowsQuery, meQuery, messagesQuery, overviewQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
+import {
+  activityQuery,
+  ApiError,
+  campaignQuery,
+  campaignsQuery,
+  flowQuery,
+  flowsQuery,
+  libraryQuery,
+  meQuery,
+  messagesQuery,
+  overviewQuery,
+  segmentsQuery,
+  sendingQuery,
+  tenantsQuery,
+} from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
@@ -12,6 +26,7 @@ import { Developers } from './pages/Developers.tsx';
 import { Domain } from './pages/Domain.tsx';
 import { Embed } from './pages/Embed.tsx';
 import { Home } from './pages/Home.tsx';
+import { Images } from './pages/Images.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
 import { Setup, SignIn } from './pages/SignIn.tsx';
@@ -136,6 +151,12 @@ const audience = createRoute({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(segmentsQuery(params.tenant)),
   component: Audience,
 });
+const images = createRoute({
+  getParentRoute: () => tenant,
+  path: 'images',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(libraryQuery(params.tenant)),
+  component: Images,
+});
 const segment = createRoute({ getParentRoute: () => tenant, path: 'audience/segments/$segment', component: SegmentBuilder });
 const developers = createRoute({ getParentRoute: () => tenant, path: 'developers', component: Developers });
 const domain = createRoute({
@@ -151,7 +172,7 @@ const routeTree = root.addChildren([
   signIn,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, domain, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, images, domain, developers, appearance]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

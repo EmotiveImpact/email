@@ -11,6 +11,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -562,3 +563,52 @@ export const flowSends = pgTable(
   },
   (t) => [uniqueIndex('flow_sends_once').on(t.flowId, t.contactId, t.reason), index('flow_sends_contact').on(t.contactId, t.createdAt)],
 );
+
+// ---------------------------------------------------------------- images
+
+export const ASSET_KINDS = ['upload', 'generated', 'design'] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/**
+ * A picture a business can put in its emails: one it uploaded, one generated from a prompt, or a
+ * design made on the canvas (its layers kept in `design`, so it stays editable). The file itself
+ * lives in the asset store under `key`; a new key per version keeps cached copies correct.
+ */
+export const assets = pgTable(
+  'assets',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    kind: text('kind', { enum: ASSET_KINDS }).notNull(),
+    name: text('name').notNull(),
+    key: text('key').notNull().unique(),
+    contentType: text('content_type').notNull(),
+    width: integer('width').notNull(),
+    height: integer('height').notNull(),
+    bytes: integer('bytes').notNull(),
+    /** For generated pictures: what was asked for, in which style, from which provider. */
+    prompt: text('prompt'),
+    style: text('style'),
+    provider: text('provider'),
+    /** For designs: the layers (see `DesignDoc` in @platform/content). */
+    design: jsonb('design').$type<Record<string, unknown>>(),
+    createdBy: text('created_by'),
+    createdAt: created(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Removed from the library. The file stays, because emails already sent still show it. */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (t) => [index('assets_tenant_created_idx').on(t.tenantId, t.createdAt)],
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
+
+/** File contents when no bucket is configured. Fine for local work and small studios. */
+export const assetBlobs = pgTable('asset_blobs', {
+  key: text('key').primaryKey(),
+  contentType: text('content_type').notNull(),
+  data: bytea('data').notNull(),
+  createdAt: created(),
+});

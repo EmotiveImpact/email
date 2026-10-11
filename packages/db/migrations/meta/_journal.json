@@ -43,6 +43,13 @@
       "when": 1791707879486,
       "tag": "0005_diary_and_flows",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791712788673,
+      "tag": "0006_images",
+      "breakpoints": true
     }
   ]
 }

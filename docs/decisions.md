@@ -368,3 +368,38 @@ Mocks for every key screen, the design components and four palettes are on one c
 ### D72. The default palette is Edem's call
 - **Picked:** four palettes in the mocks (Cobalt and Sand, Ink and Teal, Plum and Blush, Graphite and Lime). Colours are tokens in `theme.ts` and `styles.css`, so switching is one change. Building continues on the current tokens until Edem picks.
 
+## Stage 8: pictures, generation and the design canvas
+
+### D73. One picture library per business
+- **Picked:** uploads, generated pictures and canvas designs live in one `assets` table and one Images page. Files sit behind an `AssetStore`: Postgres (`asset_blobs`, served at `/a/:key`) until `ASSETS_BUCKET` is set, then S3. Public links are long lived and cached as immutable.
+- **Why:** emails need plain public image links that never change. Postgres keeps local and early hosting to one service; S3 takes over without code changes.
+
+### D74. Image generation sits behind an interface, with a sample fallback
+- **Picked:** an `ImageGenerator` interface. `OpenAIImageGenerator` (gpt-image-1, JPEG) runs when `OPENAI_API_KEY` is set; otherwise `SampleImageGenerator` makes soft gradients in the brand colours, and the app says they are samples.
+- **Considered:** fal.ai FLUX (`@fal-ai/client`, MIT) and Replicate (Apache-2.0). Either fits the same interface.
+- **Why:** the whole flow works and can be tested today with no key. Changing provider is one class.
+
+### D75. Generated pictures never contain words
+- **Picked:** every prompt ends with "No text, letters, numbers, logos or watermarks", wide pictures leave the left third quiet for a heading, and the brand and flat styles carry the accent colour.
+- **Why:** generated lettering is often misspelt, cannot be edited, and screen readers cannot read it. Words go on top in the canvas, where they stay editable and become the alt text (D78).
+
+### D76. Only PNG, JPEG and GIF, up to 5 MB, 40 generations a day
+- **Picked:** WebP is turned away because Outlook for Windows cannot show it. Files over 5 MB return 413. Each business gets 40 generations a day (`IMAGES_PER_DAY`), counted from its library.
+- **Why:** pictures must show in every inbox, and generation costs real money per picture.
+
+### D77. Removing a picture never breaks a sent email
+- **Picked:** removal hides a picture from the library but the file keeps serving. Saving a design writes a new file under a new key; the old one stays.
+- **Why:** sent emails point at a fixed link forever. Overwriting or deleting would blank old emails and fight the immutable cache.
+
+### D78. The design canvas is Konva, saved as layers plus a sharp PNG
+- **Picked:** `konva` and `react-konva` (MIT). A design is a small JSON document (text, shape, image and shade layers, at most 40) saved with a PNG at twice the size for sharp phones. Three sizes (header 600 x 300, slim banner 600 x 200, square 600 x 600) and three templates built from the brand colours and the chosen photo. Undo and redo, snapping to the centre lines, arrow nudging. Stickers arrive on the right with words on them, since headings sit on the left. The alt text is taken from the design's words, or from the prompt for generated pictures.
+- **Considered:** Fabric.js 7 (MIT, heavier and less React friendly), Polotno (commercial licence), tldraw (its own licence, needs a paid key in production), Excalidraw (MIT, a whiteboard rather than a layout tool).
+- **Why:** Konva draws exactly what we export, works well with React, and the layer format is ours, so designs can later be re-rendered or edited by the assistant.
+
+### D79. Pictures are made inside the email editor
+- **Picked:** the image block opens a side panel with Generate, Your pictures and Upload, with a prompt suggested from the email's heading. "Design a header" opens the canvas with the chosen photo and "Add to email" drops the result straight into the block.
+- **Why:** owners should never leave the email to find or make a picture.
+
+
+### D80. The colours stay as they were for now
+- **Picked:** Edem saw Midnight to Lilac in the app and asked to go back to the earlier look (Ember accent, dark rail with the warm glow) and keep building. Colour stays an open question for Edem; it is still one change in `theme.ts` and `styles.css` (D72).
