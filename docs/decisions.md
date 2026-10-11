@@ -445,3 +445,53 @@ Mocks for every key screen, the design components and four palettes are on one c
 - **Picked:** Better Auth's reset flow: a link that lasts an hour, other devices signed out after the change. The platform's own emails go straight through the transport, not through any business.
 - **Why:** a standalone app needs it on day one.
 
+
+## Stage 10: production hosting
+
+### D90. One image for the web app, API and worker
+- **Picked:** a single Docker image (`node:22.22-slim`) holding the API, the built web app and only the production packages (`pnpm deploy --prod`). TypeScript runs through `tsx` at start-up rather than a separate compile step. CI builds the image on every pull request, starts it against Postgres and checks `/ready`, the page and its content policy.
+- **Considered:** compiling to JavaScript with `tsc` or `tsup` (smaller and a second faster to start, but another build to keep in step with workspace packages that are imported as source); separate images per role.
+- **Revisit:** if start-up time matters (scaling quickly under load), add a compile step.
+
+### D91. The API serves the web app, with a strict content policy
+- **Picked:** in production the API serves the built app from the same address (D30 keeps cookies first-party). Hashed files are cached for a year, the page itself never, so a deploy shows on the next load. The page sends a Content-Security-Policy: scripts, styles, fonts and API calls only from us, pictures from anywhere over HTTPS (people link their own photos), and framing only by the host apps that registered an embed origin. HSTS, nosniff, a strict referrer policy and a permissions policy on every response.
+- **Considered:** the web app on a CDN (CloudFront or Vercel) with the API elsewhere: faster first load, but a second address for cookies and CORS for every call.
+
+### D92. ECS Fargate behind a load balancer, in London
+- **Picked:** ECS Fargate with an Application Load Balancer (HTTPS, TLS 1.2+ policy, HTTP redirected), written with the AWS CDK (`aws-cdk-lib` 2.273.0, Apache-2.0). A deploy that never gets healthy rolls itself back.
+- **Considered:** App Runner (closed to new customers), Lambda (pg-boss needs a long-running worker, and campaigns run for minutes), Fly.io or Railway (simpler, but SES, S3 and IAM roles are easiest from inside AWS), ECS Express Mode (newer and fewer knobs; fine to move to later).
+- **Why London:** next to Neon's London database and SES in eu-west-2, and customers' data stays in the UK.
+
+### D93. No NAT gateway
+- **Picked:** containers run in public subnets with public addresses; only the load balancer can reach the web containers and the worker takes no traffic at all. Neon and AWS APIs are reached over TLS.
+- **Why:** a NAT gateway costs about £30 a month plus data, for no gain while the database is outside the VPC anyway.
+- **Revisit:** if a database moves inside AWS (RDS), or a customer asks for fixed outbound addresses.
+
+### D94. Neon: pooled for the app, direct for migrations, migrations on start
+- **Picked:** the app and pg-boss use Neon's pooled address (pg-boss 12 works with it). Migrations run when a container starts (`MIGRATE_ON_START`), over the direct address, holding a Postgres advisory lock so two containers never migrate at once.
+- **Considered:** a separate migration task run by the deploy workflow (cleaner separation, one more moving part).
+- **Rule:** migrations only ever add; a column is removed in a later release than the code that stopped using it.
+
+### D95. Web and worker as two services from the same image
+- **Picked:** `ROLE=web` answers requests, `ROLE=worker` runs the queue and the hourly flow tick, `ROLE=all` (the default) does both for local work. Both stop cleanly on SIGTERM.
+- **Why:** a slow campaign never slows the app, and each scales on its own.
+
+### D96. SES: pay as you go, every tenant linked to the shared pieces
+- **Picked:** SES's à la carte pricing ($0.10 per 1,000, plus $0.005 per tenant and per 1,000 emails for tenants), not the plans AWS added in July 2026 (Essentials, Pro at $105 a month, Enterprise at $500 with 1,000 tenants included). One configuration set, `platform-events`, sends every delivery, bounce, complaint, reject, open, click and unsubscribe to SNS, which posts to `/ses/events`. Hard bounces and complaints are suppressed for the whole account. Every new SES tenant is linked to that configuration set and to the platform's own sending domain, because SES refuses a tenant's email otherwise (found while checking the docs; fixed in `provisioning.ts`).
+- **Revisit:** Enterprise becomes cheaper than à la carte above roughly 4 million emails a month, or when Global Deliverability and dedicated IPs are worth $500.
+
+### D97. Deploys only when someone starts them
+- **Picked:** a `workflow_dispatch` workflow, run from the GitHub `production` environment so it can require Edem's approval. It signs in to AWS with GitHub's short-lived token (no stored AWS keys), builds the image once per commit (tags cannot be overwritten), deploys with CDK and waits for `/ready`.
+- **Considered:** deploying every merge to main automatically; right once there are customers and a staging copy.
+
+### D98. Generated pictures come with each plan, by the month
+- **Picked:** Free 10, Starter 30, Growth 60, Studio 100, Scale 150 generated pictures a month, counted from the billing date, shown on Billing and in the picture panels. Uploads and designs are free. Businesses an app pays for keep the daily cap (40) as a guard.
+- **Why:** each generated picture costs us about 3p, and the daily cap alone let one business spend about £37 a month (Edem asked what each plan costs us, 11 Oct 2026).
+
+### D99. Secrets in Secrets Manager, made by the stack
+- **Picked:** one secret holds the Neon addresses and the Stripe and OpenAI keys, created with placeholders so the stack deploys before any of those exist. The cookie and link signing secrets are generated by AWS and never typed by anyone. Containers read them at start.
+- **Considered:** SSM Parameter Store (cheaper, clumsier for a group of values); GitHub secrets passed at deploy (puts them in workflow logs' reach).
+
+### D100. Pictures in a private bucket behind CloudFront
+- **Picked:** S3 with all public access blocked, served through CloudFront (origin access control, HTTPS only, cached, CORS open so the design canvas can draw them). Price class 100 (Europe and North America), since recipients are mostly in the UK.
+- **Considered:** a public bucket (simpler, but S3 now discourages it and there is no caching); serving pictures from the API (fine locally, wasteful in production).

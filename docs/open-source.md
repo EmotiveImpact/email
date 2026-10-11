@@ -210,6 +210,21 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | OpenMeter | Apache-2.0 | Considered for metering; not needed yet (D85) |
 | Better Auth password reset | MIT | Already our sign-in; its reset flow is used as is (D89) |
 
+## Used in stage 10 (production hosting)
+
+| Package or project (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `aws-cdk-lib` 2.273.0 and `constructs` 10.8.1 | Apache-2.0 | The AWS setup as code (D92) |
+| `aws-cdk` CLI 2.1145.0 | Apache-2.0 | Deploying it |
+| `aws-actions/configure-aws-credentials` v6 | MIT | GitHub signs in to AWS without stored keys (D97) |
+| `aws-actions/amazon-ecr-login` v2 | MIT | Pushing the image |
+| `@hono/node-server` serve-static | MIT | Serving the built app from the API (D91) |
+| `pg-boss` 12.37.1 | MIT | Already our queue; confirmed it works through Neon's pooler (D94) |
+| `sst` 4.17.2 | MIT | Considered: friendlier than CDK, but runs on Pulumi and its own state; CDK keeps everything in CloudFormation |
+| Kamal 2.12.0 | MIT | Considered: deploys containers to plain servers; we would then run our own load balancer and TLS |
+| Coolify | Apache-2.0 | Considered: self-hosted platform; one more server to keep alive |
+| Dittofeed's Helm and Docker setups | MIT | Studied: one image with roles, as here |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -242,3 +257,13 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://www.getlago.com/blog/open-source-licensing-and-why-lago-chose-agplv3
 - https://pkg.go.dev/github.com/openmeterio/openmeter@v1.0.0-beta.149
 - https://www.better-auth.com/docs/authentication/email-password
+- https://aws.amazon.com/ses/pricing/
+- https://docs.aws.amazon.com/ses/latest/dg/tenants.html
+- https://dev.classmethod.jp/en/articles/ses-pricing-plans-price-list-api-sesv2-api/
+- https://neon.com/pricing
+- https://neon.com/docs/connect/connection-pooling
+- https://github.com/timgit/pg-boss
+- https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html
+- https://github.com/aws-actions/configure-aws-credentials
+- https://docs.aws.amazon.com/cdk/v2/guide/home.html
+- https://support.google.com/a/answer/81126 (Gmail sender guidelines)

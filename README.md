@@ -4,6 +4,7 @@ Email for appointment businesses, sent through Amazon SES. One engine serves thr
 
 - `docs/decisions.md` lists every real choice made so far, what else was considered, and when to revisit it.
 - `docs/open-source.md` is the register of open-source projects checked, with licences and verdicts.
+- `docs/production.md` is how it runs in London, what it costs, and the go-live steps that need your accounts.
 
 ## What is here
 
@@ -15,6 +16,8 @@ Email for appointment businesses, sent through Amazon SES. One engine serves thr
 | `packages/sdk` | TypeScript client for the API and a webhook verifier |
 | `apps/api` | Hono API: `/v1` for apps, `/ses/events` for SES, `/u/:token` unsubscribe pages, `/auth` sign-in (Better Auth), `/app` for the web app |
 | `apps/web` | The app: Vite, React 19, TanStack Router and Query, Tailwind 4 |
+| `infra` | The AWS setup in London as code (CDK): web and worker on Fargate, pictures on S3 and CloudFront, SES events |
+| `Dockerfile` | One production image for the web app, API and worker |
 
 ## Run it locally
 
@@ -99,6 +102,8 @@ mountStudio(document.getElementById('email')!, url, { onEvent: (e) => e.type ===
 To try it locally, run `SALEANE_API_KEY=<key from db:seed> pnpm demo:host` and open http://localhost:3000, a stand-in for Saleane.
 
 ## SES setup
+
+Production sets all of this up from `infra/` (see `docs/production.md`). By hand, for another account:
 
 1. Verify the sending domain in SES (eu-west-2) and create a configuration set, `platform-events`.
 2. Add an event destination to the set: SNS topic, events Send, Delivery, Bounce, Complaint, Reject, Delivery delay, Rendering failure, Open and Click. Open and click tracking also needs a custom tracking domain on the set (or SES's default one).
