@@ -44,6 +44,8 @@ export function useTenant() {
 const initials = (name: string) =>
   name
     .split(/\s+/)
+    // Words only, so "Fern & Fable" reads FF rather than F&.
+    .filter((w) => /^\p{L}/u.test(w))
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join('');

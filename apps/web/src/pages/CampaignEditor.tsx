@@ -12,6 +12,7 @@ import {
   useScheduleCampaign,
   useSendTest,
   useUnscheduleCampaign,
+  type Audience,
   type CampaignDetail,
   type CampaignPatch,
   type EmailDoc,
@@ -167,10 +168,11 @@ function AudiencePicker({ segmentId, onChange }: { segmentId: string | null; onC
   );
 }
 
-function AudienceLine({ audience }: { audience: { eligible: number; noConsent: number; suppressed: number } }) {
+function AudienceLine({ audience }: { audience: Audience }) {
   const left = [
     audience.noConsent > 0 && `${nf.format(audience.noConsent)} without consent`,
     audience.suppressed > 0 && `${nf.format(audience.suppressed)} unsubscribed or bouncing`,
+    audience.recent > 0 && `${nf.format(audience.recent)} emailed in the last day`,
   ].filter(Boolean);
   return (
     <span className="text-xs text-muted">
@@ -283,8 +285,9 @@ function ReviewPanel({
         <section className="flex flex-col gap-1.5 rounded-xl bg-soft px-4 py-3.5">
           <span className="display text-[30px] leading-none">{nf.format(audience.eligible)}</span>
           <span className="text-[13px] text-muted">
-            people will get it. We leave out anyone who has not said yes to news ({nf.format(audience.noConsent)}) and anyone who unsubscribed or whose
-            address bounced ({nf.format(audience.suppressed)}).
+            people will get it. We leave out anyone who has not said yes to news ({nf.format(audience.noConsent)}), anyone who unsubscribed or whose
+            address bounced ({nf.format(audience.suppressed)}), and anyone who got another email from you in the last day ({nf.format(audience.recent)}), so
+            nobody gets two in a row.
           </span>
         </section>
       )}
@@ -390,10 +393,11 @@ function Results({ campaign }: { campaign: CampaignDetail }) {
                 <Stat label="Bounced" value={nf.format(s.bounced)} sub={rate(s.bounced, s.total)} tone={s.total && s.bounced / s.total > 0.05 ? 'bad' : undefined} />
                 <Stat label="Marked as spam" value={nf.format(s.complained)} sub={rate(s.complained, s.total)} tone={s.complained > 0 ? 'bad' : undefined} />
               </div>
-              {((campaign.skippedNoConsent ?? 0) > 0 || (campaign.skippedSuppressed ?? 0) > 0) && (
+              {((campaign.skippedNoConsent ?? 0) > 0 || (campaign.skippedSuppressed ?? 0) > 0 || (campaign.skippedRecent ?? 0) > 0) && (
                 <Card className="px-5 py-4 text-[13px] leading-relaxed text-muted">
-                  Left out to protect your sending: {nf.format(campaign.skippedNoConsent ?? 0)} without consent for news, and{' '}
-                  {nf.format(campaign.skippedSuppressed ?? 0)} who unsubscribed or whose address bounced before.
+                  Left out to protect your sending: {nf.format(campaign.skippedNoConsent ?? 0)} without consent for news,{' '}
+                  {nf.format(campaign.skippedSuppressed ?? 0)} who unsubscribed or whose address bounced before, and {nf.format(campaign.skippedRecent ?? 0)} who
+                  got another email from you in the day before.
                 </Card>
               )}
               <p className="m-0 text-xs text-faint">Opens are a rough guide: some inboxes open every email to check it, and others block the tracking.</p>

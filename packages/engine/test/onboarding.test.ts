@@ -1,5 +1,6 @@
 import { appointments, contacts, eq } from '@platform/db';
 import { afterEach, describe, expect, it } from 'vitest';
+import { birthdayFrom } from '../src/onboarding.ts';
 import { setup } from '../src/testing.ts';
 
 let close: (() => Promise<void>) | undefined;
@@ -20,8 +21,8 @@ describe('bringing in clients', () => {
     const result = await engine.importClients(tenant.id, {
       consent: 'granted',
       clients: [
-        { email: ' Ama@Example.com ', firstName: 'Ama', lastName: 'Mensah', phone: '07700 900123' },
-        { email: 'kofi@example.com', firstName: 'Kofi' },
+        { email: ' Ama@Example.com ', firstName: 'Ama', lastName: 'Mensah', phone: '07700 900123', birthday: '14/03/1990' },
+        { email: 'kofi@example.com', firstName: 'Kofi', birthday: 'sometime in spring' },
         { email: 'not an email', firstName: 'Nobody' },
         { firstName: 'No email' },
       ],
@@ -36,7 +37,15 @@ describe('bringing in clients', () => {
       ],
     });
     const [ama] = await db.select().from(contacts).where(eq(contacts.email, 'ama@example.com'));
-    expect(ama).toMatchObject({ firstName: 'Ama', lastName: 'Mensah', marketingConsent: 'granted', attributes: { phone: '07700 900123' } });
+    expect(ama).toMatchObject({ firstName: 'Ama', lastName: 'Mensah', marketingConsent: 'granted', attributes: { phone: '07700 900123', birthday: '03-14' } });
+    const [kofi] = await db.select().from(contacts).where(eq(contacts.email, 'kofi@example.com'));
+    expect(kofi!.attributes).toEqual({});
+  });
+
+  it('reads birthdays the way spreadsheets write them, keeping only the day', () => {
+    for (const v of ['1990-03-14', '03-14', '3-14', '14/03/1990', '14/03', '14.3.90', '14 March', '14th Mar 1990', '14 mar.']) expect(birthdayFrom(v)).toBe('03-14');
+    expect(birthdayFrom('29/02')).toBe('02-29');
+    for (const v of ['', undefined, '31/02', '13/13', '03/14/1990', 'spring', '14 Smarch']) expect(birthdayFrom(v)).toBeUndefined();
   });
 
   it('never overrides a person who said no, or a name the business already has', async () => {

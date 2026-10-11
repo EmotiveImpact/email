@@ -90,6 +90,8 @@ describe('the overview', () => {
     const weekday = at(3).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
     expect(opportunities[0]).toMatchObject({ title: `Fill ${weekday} afternoon`, value: 15000, people: { initials: ['M', 'K', 'A'], more: 0 } });
     expect(opportunities[0]!.detail).toMatch(/^Three free slots\. Three clients are due back/);
-    expect(opportunities[1]).toMatchObject({ title: 'Three clients are due back', action: { label: 'Review and switch on' } });
+    expect(opportunities[1]).toMatchObject({ title: 'Three clients come due in the next two weeks', action: { label: 'Review and switch on' } });
+    // None is past their gap with a yes to news, so the flow page shows nobody waiting either.
+    expect((await engine.listFlows(tenant.id)).find((f) => f.kind === 'rebook')!.waiting).toBe(0);
   });
 });

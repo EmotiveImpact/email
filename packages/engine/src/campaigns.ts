@@ -5,6 +5,7 @@
 import { EmailDoc, fillMergeTags, inboxWarnings, playById, PLAYS, problems, renderEmail, starterDoc, themeFromBrand, unknownMergeTags, type SlotLink } from '@platform/content';
 import {
   and,
+  appointments,
   campaigns,
   contacts,
   desc,
@@ -22,7 +23,6 @@ import {
 } from '@platform/db';
 import { compileSegment, parseDefinition } from './audience.ts';
 import type { createDiary } from './diary.ts';
-import { sampleSlots } from './slots.ts';
 import type { Queue } from './queue.ts';
 import { PlatformError } from './types.ts';
 
@@ -41,11 +41,27 @@ export type CampaignDeps = {
   sendingProblem: (tenantId: string, count: number) => Promise<string | null>;
 };
 
+/**
+ * A campaign leaves out anyone who got another marketing email from the business this recently,
+ * so a client who just had a due-back nudge is not sent a newsletter minutes later (D127).
+ */
+export const CAMPAIGN_GAP_HOURS = 24;
+
 /** Test sends a business can make in a day. */
 export const TESTS_PER_DAY = 25;
 
+/** The business's most booked service, so previews say "your next gel manicure" rather than a made-up one. */
+export async function commonService(db: Db, tenantId: string) {
+  const [row] = (
+    await db.execute<{ service: string }>(
+      sql`select service from ${appointments} where tenant_id = ${tenantId} and service is not null and service <> '' group by service order by count(*) desc limit 1`,
+    )
+  ).rows;
+  return row?.service ?? null;
+}
+
 /** Made-up values for tests and previews, so every merge tag shows something sensible. */
-export function sampleValues(tenant: { name: string; brand: { bookingUrl?: string; reviewUrl?: string } }, email: string) {
+export function sampleValues(tenant: { name: string; brand: { bookingUrl?: string; reviewUrl?: string } }, email: string, service?: string | null) {
   return {
     first_name: 'Ama',
     last_name: 'Mensah',
@@ -53,7 +69,7 @@ export function sampleValues(tenant: { name: string; brand: { bookingUrl?: strin
     business_name: tenant.name,
     booking_url: tenant.brand.bookingUrl ?? '#',
     review_url: tenant.brand.reviewUrl ?? '#',
-    last_service: 'Balayage',
+    last_service: service ?? 'appointment',
     weeks_since_visit: '7',
     slot_day: 'Thursday',
   };
@@ -87,10 +103,13 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
   }
 
   /** Free times for the free-times block, if the email has one. Tests and previews fall back to examples. */
-  async function slotsFor(tenant: typeof tenants.$inferSelect, doc: EmailDoc, sample: boolean) {
+  /**
+   * The free times a campaign shows. A campaign goes now, so previews and tests show exactly what
+   * would go: real times, or the "Choose a time" button when the diary has none (D126).
+   */
+  async function slotsFor(tenant: typeof tenants.$inferSelect, doc: EmailDoc) {
     if (!doc.blocks.some((b) => b.type === 'slots')) return [];
-    const slots = await upcomingSlots(tenant);
-    return slots.length || !sample ? slots : sampleSlots(tenant.timezone, tenant.brand.bookingUrl, new Date(), true);
+    return upcomingSlots(tenant);
   }
 
   async function getCampaign(tenantId: string, id: string) {
@@ -164,20 +183,28 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
   }
 
   /** Who a campaign would reach right now, and who it would leave out and why. */
-  async function audienceFor(tenantId: string, segmentId: string | null) {
+  async function audienceFor(tenantId: string, segmentId: string | null, campaignId?: string) {
     const inSegment = segmentId ? compileSegment(parseDefinition((await segmentOf(tenantId, segmentId)).definition)) : sql`true`;
     const blocked = sql`exists (select 1 from ${suppressions} s where s.email = ${contacts.email} and s.scope in (${tenantId}, 'global'))`;
+    const recent = recentlyEmailed(tenantId, campaignId);
     const [row] = await db
       .select({
         total: sql<number>`count(*)::int`,
         noConsent: sql<number>`(count(*) filter (where ${contacts.marketingConsent} <> 'granted'))::int`,
         suppressed: sql<number>`(count(*) filter (where ${contacts.marketingConsent} = 'granted' and ${blocked}))::int`,
+        recent: sql<number>`(count(*) filter (where ${contacts.marketingConsent} = 'granted' and not ${blocked} and ${recent}))::int`,
       })
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenantId), inSegment));
-    const { total, noConsent, suppressed } = row!;
-    return { total, noConsent, suppressed, eligible: total - noConsent - suppressed };
+    const { total, noConsent, suppressed, recent: recentCount } = row!;
+    return { total, noConsent, suppressed, recent: recentCount, eligible: total - noConsent - suppressed - recentCount };
   }
+
+  /** True for a contact who got another marketing email from the business in the last day. */
+  const recentlyEmailed = (tenantId: string, campaignId?: string) =>
+    sql`exists (select 1 from ${messages} m where m.tenant_id = ${tenantId} and m.to_email = ${contacts.email} and m.stream = 'marketing'
+      and m.status not in ('suppressed', 'failed') and m.created_at > now() - make_interval(hours => ${CAMPAIGN_GAP_HOURS})
+      ${campaignId ? sql`and m.campaign_id is distinct from ${campaignId}` : sql``})`;
 
   /** Checks a campaign can go: subject, sender, content and an audience. Returns what to fix. */
   async function readiness(campaign: Campaign) {
@@ -192,8 +219,9 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     if (!tenant.brand.address?.trim()) found.push('Add your postal address in Appearance; it goes at the foot of the email.');
     if (!tenant.brand.bookingUrl && usesBookingUrl(campaign.subject, doc.blocks)) found.push('Add your booking link in Appearance; this email uses it.');
     if (tenant.status === 'paused') found.push('Sending is paused for this business.');
-    const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
-    if (audience.eligible === 0) found.push('Nobody in this audience has said yes to news.');
+    const audience = await audienceFor(campaign.tenantId, campaign.segmentId, campaign.id);
+    if (audience.eligible === 0)
+      found.push(audience.recent ? 'Everyone in this audience got an email from you in the last day. Try again tomorrow.' : 'Nobody in this audience has said yes to news.');
     else {
       const limit = await sendingProblem(campaign.tenantId, audience.eligible);
       if (limit) found.push(limit);
@@ -246,10 +274,10 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     }
     const tenant = await tenantById(campaign.tenantId);
     const doc = parseContent(campaign.content);
-    const slots = await slotsFor(tenant, doc, false);
+    const slots = await slotsFor(tenant, doc);
     const { html, text } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
     const rhythms = new Map((await diary.rhythms(campaign.tenantId)).map((r) => [r.contactId, r]));
-    const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
+    const audience = await audienceFor(campaign.tenantId, campaign.segmentId, campaign.id);
     const inSegment = campaign.segmentId
       ? compileSegment(parseDefinition((await segmentOf(campaign.tenantId, campaign.segmentId)).definition))
       : sql`true`;
@@ -262,6 +290,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
           eq(contacts.marketingConsent, 'granted'),
           inSegment,
           sql`not exists (select 1 from ${suppressions} s where s.email = ${contacts.email} and s.scope in (${campaign.tenantId}, 'global'))`,
+          sql`not ${recentlyEmailed(campaign.tenantId, campaign.id)}`,
         ),
       );
 
@@ -317,6 +346,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
         recipients: people.length,
         skippedNoConsent: audience.noConsent,
         skippedSuppressed: audience.suppressed,
+        skippedRecent: audience.recent,
         updatedAt: new Date(),
       })
       .where(eq(campaigns.id, campaignId));
@@ -337,9 +367,9 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     )).rows as [{ n: number }];
     if (n >= TESTS_PER_DAY) throw new PlatformError('rate_limited', `That is ${TESTS_PER_DAY} test emails today. More tomorrow.`, 429);
     const doc = parseContent(campaign.content);
-    const slots = await slotsFor(tenant, doc, true);
+    const slots = await slotsFor(tenant, doc);
     const { html, text } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
-    const values = sampleValues(tenant, to);
+    const values = sampleValues(tenant, to, await commonService(db, tenantId));
     const sender = await senderFor(tenant);
     const [row] = await db
       .insert(messages)
@@ -424,9 +454,10 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
   async function previewCampaign(tenantId: string, content: unknown) {
     const tenant = await tenantById(tenantId);
     const doc = parseContent(content);
-    const slots = await slotsFor(tenant, doc, true);
-    const { html } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
-    return fillMergeTags(html, sampleValues(tenant, 'ama@example.com')).replaceAll('{{unsubscribe_url}}', '#');
+    const slots = await slotsFor(tenant, doc);
+    const [{ html }, service] = await Promise.all([renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots }), commonService(db, tenantId)]);
+    const values = sampleValues(tenant, 'ama@example.com', service);
+    return { html: fillMergeTags(html, values).replaceAll('{{unsubscribe_url}}', '#'), service: values.last_service };
   }
 
   return {

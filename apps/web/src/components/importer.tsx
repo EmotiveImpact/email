@@ -21,6 +21,7 @@ const FIELDS: Record<ImportKind, Field[]> = {
     { key: 'fullName', label: 'Full name', guess: /^(full\s*)?name$|^client(\s*name)?$|^customer(\s*name)?$/i },
     { key: 'phone', label: 'Phone', guess: /phone|mobile|tel/i },
     { key: 'consent', label: 'Said yes to news', guess: /marketing|consent|opt.?in|newsletter|subscri|news/i },
+    { key: 'birthday', label: 'Birthday', guess: /birth|dob|bday/i },
   ],
   visits: [
     { key: 'email', label: 'Client email', required: true, guess: /e-?mail/i },
@@ -106,7 +107,7 @@ export function Importer({ tenant, kind, onDone }: { tenant: string; kind: Impor
 
   function toRow(row: Record<string, string>): ClientRow | VisitRow {
     const names = !value(row, 'firstName') && value(row, 'fullName') ? splitName(value(row, 'fullName')) : { firstName: value(row, 'firstName') || undefined, lastName: value(row, 'lastName') || undefined };
-    if (kind === 'clients') return { email: value(row, 'email'), ...names, phone: value(row, 'phone') || undefined };
+    if (kind === 'clients') return { email: value(row, 'email'), ...names, phone: value(row, 'phone') || undefined, birthday: value(row, 'birthday') || undefined };
     return {
       email: value(row, 'email'),
       ...names,

@@ -45,7 +45,7 @@ describe('campaigns', () => {
     // Linden has no booking link, so the starter's button has nowhere to go yet.
     expect(detail.problems).not.toContain('Add a subject line.');
     expect(detail.problems.some((p) => p.includes('button needs a link'))).toBe(true);
-    expect(detail.audience).toEqual({ total: 3, noConsent: 1, suppressed: 0, eligible: 2 });
+    expect(detail.audience).toEqual({ total: 3, noConsent: 1, suppressed: 0, recent: 0, eligible: 2 });
   });
 
   it('starts from a play, and will not send until the [brackets] are filled in', async () => {
@@ -96,7 +96,7 @@ describe('campaigns', () => {
       definition: { conditions: [{ type: 'attribute', key: 'treatment', op: 'equals', value: 'facial' }] },
     });
     const draft = await engine.createCampaign(tenant.id, { subject: 'Hi', content, segmentId: segment.id });
-    expect(await engine.audienceFor(tenant.id, segment.id)).toEqual({ total: 2, noConsent: 1, suppressed: 0, eligible: 1 });
+    expect(await engine.audienceFor(tenant.id, segment.id)).toEqual({ total: 2, noConsent: 1, suppressed: 0, recent: 0, eligible: 1 });
     await engine.scheduleCampaign(tenant.id, draft.id);
     await engine.processCampaign(draft.id);
     const sends = queue.jobs.filter((j) => j.name === 'send-message');
@@ -125,6 +125,8 @@ describe('campaigns', () => {
     await queue.drain((name, data) => engine.runJob(name, data));
     const amaMessage = transport.sent.find((m) => m.to === 'ama@example.com')!;
     const token = amaMessage.headers['List-Unsubscribe']!.split('/u/')[1]!.slice(0, -1);
+    // The first went two days ago, so the one-a-day rule does not hold the second back.
+    await db.update(messages).set({ createdAt: new Date(Date.now() - 2 * 86_400_000) }).where(eq(messages.campaignId, first.id));
 
     const second = await engine.createCampaign(tenant.id, { subject: 'Two', content });
     await engine.scheduleCampaign(tenant.id, second.id);
@@ -138,6 +140,23 @@ describe('campaigns', () => {
     const [held] = await db.select().from(messages).where(eq(messages.to, 'ama@example.com')).then((rows) => rows.filter((r) => r.subject === 'Two'));
     expect(held).toMatchObject({ status: 'suppressed', error: 'unsubscribe' });
     expect((await engine.campaignDetail(tenant.id, first.id)).stats!.unsubscribed).toBe(1);
+  });
+
+  it('leaves out anyone who got another email from the business in the last day', async () => {
+    const { engine, tenant, content, transport, drain, db } = await studio();
+    const first = await engine.createCampaign(tenant.id, { subject: 'One', content });
+    await engine.scheduleCampaign(tenant.id, first.id);
+    await drain();
+    // Kofi's copy went yesterday morning; Ama's went just now.
+    const [kofi] = await db.select().from(messages).where(eq(messages.to, 'kofi@example.com'));
+    await db.update(messages).set({ createdAt: new Date(Date.now() - 25 * 3_600_000) }).where(eq(messages.id, kofi!.id));
+
+    const second = await engine.createCampaign(tenant.id, { subject: 'Two', content });
+    expect(await engine.audienceFor(tenant.id, null)).toMatchObject({ eligible: 1, recent: 1, noConsent: 1 });
+    await engine.scheduleCampaign(tenant.id, second.id);
+    await drain();
+    expect(transport.sent.filter((m) => m.subject === 'Two').map((m) => m.to)).toEqual(['kofi@example.com']);
+    expect(await engine.campaignDetail(tenant.id, second.id)).toMatchObject({ recipients: 1, skippedRecent: 1 });
   });
 
   it('can be unscheduled, and then the queued job does nothing', async () => {
@@ -173,7 +192,9 @@ describe('campaigns', () => {
     expect(transport.sent[0]).toMatchObject({ to: 'owner@linden.test', subject: '[Test] Hello Ama' });
     expect((await engine.campaignDetail(tenant.id, draft.id)).status).toBe('draft');
     const preview = await engine.previewCampaign(tenant.id, content);
-    expect(preview).toContain('Hello Ama');
-    expect(preview).not.toContain('{{');
+    expect(preview.html).toContain('Hello Ama');
+    expect(preview.html).not.toContain('{{');
+    // With no visits yet, the sample service is neutral rather than made up.
+    expect(preview.service).toBe('appointment');
   });
 });

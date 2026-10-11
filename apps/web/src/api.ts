@@ -131,7 +131,7 @@ export const gettingStartedQuery = (tenant: string) =>
     queryFn: () => request<{ steps: Step[]; done: number; total: number }>(`/app/tenants/${encodeURIComponent(tenant)}/getting-started`),
   });
 
-export type ClientRow = { email: string; firstName?: string; lastName?: string; phone?: string };
+export type ClientRow = { email: string; firstName?: string; lastName?: string; phone?: string; birthday?: string };
 export type VisitRow = { email: string; firstName?: string; lastName?: string; date: string; service?: string; staff?: string; price?: string };
 export type ImportResult = { added?: number; updated?: number; consented?: number; saved?: number; skipped: { row: number; reason: string }[] };
 
@@ -336,7 +336,7 @@ export function useDeleteSegment(tenant: string) {
 export type { Block, BlockType, EmailDoc } from '@platform/content/blocks';
 
 export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'sent';
-export type Audience = { total: number; noConsent: number; suppressed: number; eligible: number };
+export type Audience = { total: number; noConsent: number; suppressed: number; recent: number; eligible: number };
 export type CampaignStats = {
   total: number;
   pending: number;
@@ -363,6 +363,7 @@ export type Campaign = {
   recipients: number | null;
   skippedNoConsent: number | null;
   skippedSuppressed: number | null;
+  skippedRecent: number | null;
   /** Why a scheduled send went back to draft (over the plan, say). */
   problem: string | null;
   createdAt: string;
@@ -403,7 +404,7 @@ export const audienceQuery = (tenant: string, segmentId: string | null) =>
   });
 
 export const previewEmail = (tenant: string, content: EmailDoc) =>
-  request<{ html: string }>(`${campaignPath(tenant)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
+  request<{ html: string; service: string }>(`${campaignPath(tenant)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
 
 export function useCreateCampaign(tenant: string) {
   const client = useQueryClient();
@@ -556,7 +557,7 @@ export const flowQuery = (tenant: string, id: string) =>
   queryOptions({ queryKey: ['flow', tenant, id], queryFn: () => request<FlowDetail>(flowPath(tenant, id)) });
 
 export const previewFlow = (tenant: string, id: string, content: EmailDoc) =>
-  request<{ html: string; slotDay: string }>(`${flowPath(tenant, id)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
+  request<{ html: string; slotDay: string; service: string }>(`${flowPath(tenant, id)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
 
 function useFlowAction<I>(tenant: string, id: string, call: (input: I) => Promise<FlowDetail>) {
   const client = useQueryClient();

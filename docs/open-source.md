@@ -246,6 +246,15 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `focus-trap` / `focus-trap-react` | MIT | Considered for keeping keyboard focus inside panels; a 40-line hook covers our five panels without a dependency |
 | Gmail and Yahoo sender rules | Docs | Checked again for the inbox warnings and the visible unsubscribe fallback |
 
+## Stage 13: walking the main journeys
+
+| Project | Licence | Use |
+|---|---|---|
+| `chrono-node` | MIT | Considered for reading birthdays in any format; far more than a birthday column needs. A 20-line reader covers the formats spreadsheets use |
+| `date-fns` `parse` | MIT | Considered for the same; needs the format known in advance, which an import does not have |
+| Klaviyo Smart Sending | Docs | Checked how a leading tool spaces campaigns after other emails (16 hours by default), which shaped D127 |
+| `axe-core` | MPL-2.0 | Run again from outside the repo after the fixes; tool only, not shipped |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -295,3 +304,5 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://npmjs.com/package/hono-rate-limiter
 - https://licenses.dev/npm/axe-core/4.7.0
 - https://npmjs.com/package/focus-trap-react
+- https://help.klaviyo.com/hc/en-us/articles/360004059711
+- https://snyk.io/advisor/npm-package/chrono-node
