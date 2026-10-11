@@ -1,7 +1,8 @@
 /**
  * The platform's data model.
  *
- * account  → whoever pays (you, an agency, a third-party SaaS)
+ * account  → whoever pays (you, an agency, a third-party SaaS). Also the sign-in "organisation":
+ *            Better Auth's organisation model is stored in this table, so members belong to an account.
  * app      → a product sending through the platform (Saleane, Caleane)
  * tenant   → one sending business inside an app (a single salon); maps 1:1 to an SES tenant
  *
@@ -9,6 +10,7 @@
  */
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -23,8 +25,105 @@ const created = () => timestamp('created_at', { withTimezone: true }).notNull().
 export const accounts = pgTable('accounts', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  logo: text('logo'),
+  /** Better Auth stores organisation metadata as a JSON string. */
+  metadata: text('metadata'),
   createdAt: created(),
 });
+
+// ---------------------------------------------------------------- sign-in (Better Auth)
+// JS keys match Better Auth's field names; columns are snake_case like the rest.
+
+const updated = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
+
+export const users = pgTable('users', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  image: text('image'),
+  createdAt: created(),
+  updatedAt: updated(),
+});
+
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    activeOrganizationId: text('active_account_id'),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [index('sessions_user').on(t.userId)],
+);
+
+/** Sign-in methods per user (password, Google, ...). Better Auth calls these "accounts". */
+export const logins = pgTable(
+  'logins',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    accountId: text('provider_account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [index('logins_user').on(t.userId)],
+);
+
+export const verifications = pgTable(
+  'verifications',
+  {
+    id: text('id').primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: created(),
+    updatedAt: updated(),
+  },
+  (t) => [index('verifications_identifier').on(t.identifier)],
+);
+
+/** People in an account, with their role ("owner", "admin", "member"). */
+export const members = pgTable(
+  'members',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role').notNull().default('member'),
+    createdAt: created(),
+  },
+  (t) => [uniqueIndex('members_account_user').on(t.organizationId, t.userId), index('members_user').on(t.userId)],
+);
+
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    role: text('role'),
+    status: text('status').notNull().default('pending'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    inviterId: text('inviter_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: created(),
+  },
+  (t) => [index('invitations_account').on(t.organizationId), index('invitations_email').on(t.email)],
+);
 
 export const apps = pgTable('apps', {
   id: text('id').primaryKey(),
@@ -200,7 +299,10 @@ export const appEvents = pgTable(
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
     createdAt: created(),
   },
-  (t) => [index('app_events_tenant_name').on(t.tenantId, t.name, t.occurredAt)],
+  (t) => [
+    index('app_events_tenant_name').on(t.tenantId, t.name, t.occurredAt),
+    index('app_events_contact').on(t.contactId, t.name, t.occurredAt),
+  ],
 );
 
 export const webhookEndpoints = pgTable('webhook_endpoints', {
@@ -229,4 +331,21 @@ export const webhookDeliveries = pgTable(
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
   },
   (t) => [index('webhook_deliveries_endpoint').on(t.endpointId, t.createdAt)],
+);
+
+/**
+ * A saved group of contacts, defined by rules (see `SegmentDefinition` in the engine) and
+ * worked out when it is used, so it is always up to date.
+ */
+export const segments = pgTable(
+  'segments',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().references(() => tenants.id),
+    name: text('name').notNull(),
+    definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
+    createdAt: created(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('segments_tenant').on(t.tenantId)],
 );

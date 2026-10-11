@@ -1,5 +1,5 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
 import {
   ArrowRight,
   ArrowUp,
@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { tenantsQuery, type Tenant } from '../api.ts';
+import { auth, meQuery, tenantsQuery, type Tenant } from '../api.ts';
 import { brandVars, type Brand } from '../theme.ts';
 import { cx } from './ui.tsx';
 
@@ -67,7 +67,10 @@ export function Shell() {
   const style = useMemo(() => brandVars(preview ?? tenant?.brand) as CSSProperties, [preview, tenant?.brand]);
 
   useEffect(() => writeFlag('assistant', assistant), [assistant]);
-  useEffect(() => setPreview(null), [tenantId]);
+  useEffect(() => {
+    setPreview(null);
+    writeLastTenant(tenantId);
+  }, [tenantId]);
 
   if (!tenant) return <NotFound tenants={tenants} />;
 
@@ -142,14 +145,50 @@ function Rail({ tenant, assistant, onAssistant }: { tenant: Tenant; assistant: b
         {BOTTOM.map((area) => (
           <RailLink key={area.to} area={area} tenant={tenant.id} />
         ))}
-        <span
-          title={tenant.name}
-          className="mt-3 flex size-8 items-center justify-center rounded-full bg-(--avatar-bg) text-[11px] font-semibold text-(--avatar-ink)"
-        >
-          {initials(tenant.name)}
-        </span>
+        <AccountMenu />
       </div>
     </nav>
+  );
+}
+
+function AccountMenu() {
+  const { data: me } = useQuery(meQuery);
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const name = me?.user.name ?? '';
+  return (
+    <div className="relative mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Your account"
+        aria-expanded={open}
+        title={me?.user.email}
+        className="flex size-8 cursor-pointer items-center justify-center rounded-full border-0 bg-(--avatar-bg) text-[11px] font-semibold text-(--avatar-ink)"
+      >
+        {initials(name) || '·'}
+      </button>
+      {open && (
+        <div className="absolute bottom-0 left-11 z-30 w-60 rounded-xl border border-rule bg-paper p-1.5 text-[13px] text-ink shadow-[0_8px_30px_#0000001F]">
+          <div className="px-2.5 py-2">
+            <div className="font-semibold">{name}</div>
+            <div className="truncate text-muted">{me?.user.email}</div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              await auth.signOut();
+              client.clear();
+              await navigate({ to: '/sign-in' });
+            }}
+            className="w-full cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-[inherit] hover:bg-soft"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -161,14 +200,16 @@ function TopBar({ tenant, tenants }: { tenant: Tenant; tenants: Tenant[] }) {
         <span className="sr-only">Business</span>
         <select
           value={tenant.id}
-          onChange={(e) => navigate({ to: '/$tenant', params: { tenant: e.target.value } })}
+          onChange={(e) => (e.target.value === '+' ? navigate({ to: '/setup' }) : navigate({ to: '/$tenant', params: { tenant: e.target.value } }))}
           className="cursor-pointer appearance-none border-0 bg-transparent py-1 pr-6 font-[inherit] text-[inherit] outline-offset-4"
         >
           {tenants.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
+              {t.app && t.app !== 'Direct' ? ` · ${t.app}` : ''}
             </option>
           ))}
+          <option value="+">Add a business…</option>
         </select>
         <ChevronDown size={15} className="pointer-events-none absolute right-0 text-faint" />
       </label>
@@ -273,5 +314,22 @@ function writeFlag(key: string, value: boolean) {
     localStorage.setItem(key, value ? '1' : '0');
   } catch {
     // Private mode: the panel just reopens next time.
+  }
+}
+
+/** The business someone last opened, so signing in returns them to it. */
+export function readLastTenant() {
+  try {
+    return localStorage.getItem('lastTenant');
+  } catch {
+    return null;
+  }
+}
+
+function writeLastTenant(id: string) {
+  try {
+    localStorage.setItem('lastTenant', id);
+  } catch {
+    // Private mode: sign-in opens the first business instead.
   }
 }

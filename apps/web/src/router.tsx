@@ -1,13 +1,16 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, messagesQuery, tenantsQuery } from './api.ts';
-import { Shell } from './components/Shell.tsx';
+import { activityQuery, ApiError, meQuery, messagesQuery, segmentsQuery, tenantsQuery } from './api.ts';
+import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
+import { Audience, type AudienceSearch } from './pages/Audience.tsx';
 import { Developers } from './pages/Developers.tsx';
 import { Home } from './pages/Home.tsx';
+import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
+import { Setup, SignIn } from './pages/SignIn.tsx';
 import { Soon } from './pages/Soon.tsx';
 
 /*
@@ -21,24 +24,45 @@ const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   notFoundComponent: () => <Centred title="Page not found" />,
 });
 
+/** Loads who is signed in; anyone signed out goes to the sign-in page. */
+async function requireMe(queryClient: QueryClient) {
+  try {
+    return await queryClient.ensureQueryData(meQuery);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) throw redirect({ to: '/sign-in' });
+    throw error;
+  }
+}
+
+const signIn = createRoute({ getParentRoute: () => root, path: 'sign-in', component: SignIn });
+
+const setup = createRoute({
+  getParentRoute: () => root,
+  path: 'setup',
+  loader: ({ context }) => requireMe(context.queryClient),
+  component: Setup,
+});
+
 const index = createRoute({
   getParentRoute: () => root,
   path: '/',
   loader: async ({ context }) => {
+    const me = await requireMe(context.queryClient);
+    if (!me.accountId) throw redirect({ to: '/setup' });
     const tenants = await context.queryClient.ensureQueryData(tenantsQuery);
-    if (tenants[0]) throw redirect({ to: '/$tenant', params: { tenant: tenants[0].id } });
+    const last = tenants.find((t) => t.id === readLastTenant()) ?? tenants[0];
+    throw last ? redirect({ to: '/$tenant', params: { tenant: last.id } }) : redirect({ to: '/setup' });
   },
-  component: () => (
-    <Centred title="No businesses yet">
-      Run <code className="rounded bg-soft px-1.5 py-0.5">pnpm db:seed</code>, or create one through the API with <code className="rounded bg-soft px-1.5 py-0.5">PUT /v1/tenants/:id</code>.
-    </Centred>
-  ),
 });
 
 const tenant = createRoute({
   getParentRoute: () => root,
   path: '$tenant',
-  loader: ({ context }) => context.queryClient.ensureQueryData(tenantsQuery),
+  loader: async ({ context }) => {
+    const me = await requireMe(context.queryClient);
+    if (!me.accountId) throw redirect({ to: '/setup' });
+    return context.queryClient.ensureQueryData(tenantsQuery);
+  },
   component: Shell,
 });
 
@@ -55,11 +79,30 @@ const sending = createRoute({
 });
 const campaigns = createRoute({ getParentRoute: () => tenant, path: 'campaigns', component: () => <Soon area="campaigns" /> });
 const flows = createRoute({ getParentRoute: () => tenant, path: 'flows', component: () => <Soon area="flows" /> });
-const audience = createRoute({ getParentRoute: () => tenant, path: 'audience', component: () => <Soon area="audience" /> });
+const audience = createRoute({
+  getParentRoute: () => tenant,
+  path: 'audience',
+  validateSearch: (search: Record<string, unknown>): AudienceSearch => ({
+    view: search.view === 'segments' ? 'segments' : undefined,
+    q: typeof search.q === 'string' && search.q ? search.q : undefined,
+    consent: search.consent === 'granted' || search.consent === 'withdrawn' || search.consent === 'unknown' ? search.consent : undefined,
+    segment: typeof search.segment === 'string' && search.segment ? search.segment : undefined,
+    page: typeof search.page === 'number' && search.page > 0 ? search.page : undefined,
+    contact: typeof search.contact === 'string' && search.contact ? search.contact : undefined,
+  }),
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(segmentsQuery(params.tenant)),
+  component: Audience,
+});
+const segment = createRoute({ getParentRoute: () => tenant, path: 'audience/segments/$segment', component: SegmentBuilder });
 const developers = createRoute({ getParentRoute: () => tenant, path: 'developers', component: Developers });
 const appearance = createRoute({ getParentRoute: () => tenant, path: 'settings/appearance', component: Appearance });
 
-const routeTree = root.addChildren([index, tenant.addChildren([home, sending, campaigns, flows, audience, developers, appearance])]);
+const routeTree = root.addChildren([
+  index,
+  signIn,
+  setup,
+  tenant.addChildren([home, sending, campaigns, flows, audience, segment, developers, appearance]),
+]);
 
 export function makeRouter(queryClient: QueryClient) {
   return createRouter({ routeTree, context: { queryClient }, defaultPreload: 'intent', defaultPreloadStaleTime: 0, scrollRestoration: true });

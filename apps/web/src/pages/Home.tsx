@@ -1,7 +1,7 @@
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ArrowRight } from 'lucide-react';
-import { activityQuery, type Activity } from '../api.ts';
+import { activityQuery, meQuery, type Activity } from '../api.ts';
 import { AreaChart, soften } from '../components/charts.tsx';
 import { useTenant } from '../components/Shell.tsx';
 import { Card, CardTitle, PageTitle, StatusBadge, cx } from '../components/ui.tsx';
@@ -34,6 +34,7 @@ export function health(stats: Activity['stats']) {
 export function Home() {
   const tenant = useTenant();
   const { data } = useSuspenseQuery(activityQuery(tenant.id));
+  const { data: me } = useQuery(meQuery);
   const total = data.daily.reduce((sum, d) => sum + d.total, 0);
   const h = health(data.stats);
   // Today is still filling up, so the line stops at yesterday rather than dipping every morning.
@@ -45,7 +46,7 @@ export function Home() {
   return (
     <>
       <PageTitle
-        title={`${greeting()}, ${tenant.name.split(' ')[0]}`}
+        title={me ? `${greeting()}, ${me.user.name.split(' ')[0]}` : tenant.name}
         subtitle={
           <>
             {today}. <span className="font-semibold text-ink">{nf.format(total)} emails</span> in the last 30 days

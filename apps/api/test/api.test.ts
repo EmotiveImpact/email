@@ -2,7 +2,11 @@ import type { LogTransport } from '@platform/engine';
 import { setup } from '@platform/engine/testing';
 import { Webhook } from 'standardwebhooks';
 import { afterEach, describe, expect, it } from 'vitest';
+import { members, newId } from '@platform/db';
 import { createApi } from '../src/app.ts';
+import { createAuth } from '../src/auth.ts';
+
+const WEB = 'http://localhost:5173';
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -13,11 +17,12 @@ afterEach(async () => {
 async function start(options: { verifySns?: boolean; fetch?: typeof fetch } = {}) {
   const ctx = await setup({ fetch: options.fetch });
   close = ctx.close;
+  const auth = createAuth({ db: ctx.db, engine: ctx.engine, secret: 'test-secret-that-is-long-enough-1234', baseURL: WEB, webOrigin: WEB });
   const api = createApi({
     engine: ctx.engine,
     db: ctx.db,
-    webOrigin: 'http://localhost:5173',
-    devDashboardAppId: ctx.appId,
+    webOrigin: WEB,
+    auth,
     verifySns: async () => options.verifySns ?? true,
     fetch: options.fetch,
   });
@@ -149,13 +154,44 @@ describe('unsubscribe page', () => {
   });
 });
 
-describe('/app (local dashboard)', () => {
-  it('lists tenants, shows activity and saves the look', async () => {
-    const { api, call, drain } = await start();
-    await call('POST', '/v1/emails', { tenant: 'linden', to: 'a@example.com', subject: 'Hi', text: 'x' });
-    await drain();
-    expect(await (await api.request('/app/tenants')).json()).toMatchObject([{ id: 'linden', name: 'Linden Studio' }]);
-    const activity = (await (await api.request('/app/tenants/linden/activity')).json()) as {
+/** Signs up a person and returns a function that calls /app as them. */
+async function signedIn(ctx: Awaited<ReturnType<typeof start>>, options: { joinAccount?: boolean; email?: string } = {}) {
+  const response = await ctx.api.request('/auth/sign-up/email', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: WEB },
+    body: JSON.stringify({ name: 'Edem', email: options.email ?? 'edem@test.dev', password: 'a-long-enough-password' }),
+  });
+  expect(response.status).toBe(200);
+  const { user } = (await response.json()) as { user: { id: string } };
+  if (options.joinAccount !== false) await ctx.db.insert(members).values({ id: newId('mem'), organizationId: ctx.accountId, userId: user.id, role: 'owner' });
+  const cookie = response.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .join('; ');
+  return (method: string, path: string, body?: unknown) =>
+    ctx.api.request(path, {
+      method,
+      headers: { cookie, origin: WEB, 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+}
+
+describe('/app (the web app)', () => {
+  it('needs a signed-in person', async () => {
+    const { api } = await start();
+    const response = await api.request('/app/tenants');
+    expect(response.status).toBe(401);
+  });
+
+  it('lists businesses, shows activity and saves the look', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    await ctx.call('POST', '/v1/emails', { tenant: 'linden', to: 'a@example.com', subject: 'Hi', text: 'x' });
+    await ctx.drain();
+    const tenants = (await (await app('GET', '/app/tenants')).json()) as { id: string; name: string; app: string }[];
+    expect(tenants).toMatchObject([{ id: ctx.tenant.id, name: 'Linden Studio', app: 'Saleane' }]);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    const activity = (await (await app('GET', `${base}/activity`)).json()) as {
       stats: Record<string, number>;
       daily: { day: string; total: number }[];
       messages: unknown[];
@@ -164,11 +200,54 @@ describe('/app (local dashboard)', () => {
     expect(activity.daily).toHaveLength(31);
     expect(activity.daily.at(-1)).toMatchObject({ day: new Date().toISOString().slice(0, 10), total: 1 });
     expect(activity.messages).toHaveLength(1);
-    await call('POST', '/v1/emails', { tenant: 'linden', stream: 'marketing', to: 'nobody@example.com', subject: 'News', html: '<p>x</p>' });
-    const held = (await (await api.request('/app/tenants/linden/messages?show=held')).json()) as { to: string; reason: string }[];
+
+    await ctx.call('POST', '/v1/emails', { tenant: 'linden', stream: 'marketing', to: 'nobody@example.com', subject: 'News', html: '<p>x</p>' });
+    const held = (await (await app('GET', `${base}/messages?show=held`)).json()) as { to: string; reason: string }[];
     expect(held).toEqual([expect.objectContaining({ to: 'nobody@example.com', reason: 'no_marketing_consent' })]);
-    expect((await api.request('/app/tenants/linden/messages?show=nope')).status).toBe(422);
-    const saved = await api.request('/app/tenants/linden/brand', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accent: '#4B4FD8', rail: 'light' }) });
+    expect((await app('GET', `${base}/messages?show=nope`)).status).toBe(422);
+
+    const saved = await app('PUT', `${base}/brand`, { accent: '#4B4FD8', rail: 'light' });
     expect(await saved.json()).toMatchObject({ brand: { accent: '#4B4FD8', rail: 'light' }, fromEmail: 'news@linden.test' });
+  });
+
+  it('keeps other accounts’ businesses out of reach', async () => {
+    const ctx = await start();
+    const stranger = await signedIn(ctx, { joinAccount: false, email: 'stranger@test.dev' });
+    expect((await stranger('GET', '/app/tenants')).status).toBe(403);
+    expect(await (await stranger('GET', '/app/me')).json()).toMatchObject({ accountId: null, accounts: [] });
+
+    const created = await stranger('POST', '/app/accounts', { name: 'Harbour Spa' });
+    expect(created.status).toBe(201);
+    expect(await (await stranger('GET', '/app/tenants')).json()).toEqual([]);
+    expect((await stranger('GET', `/app/tenants/${ctx.tenant.id}/activity`)).status).toBe(404);
+
+    const business = (await (await stranger('POST', '/app/tenants', { name: 'Harbour Spa', fromEmail: 'hi@harbour.test' })).json()) as { id: string; app: string };
+    expect(business.app).toBe('Direct');
+    const segments = (await (await stranger('GET', `/app/tenants/${business.id}/segments`)).json()) as { name: string }[];
+    expect(segments.map((s) => s.name)).toContain('Due for a visit');
+  });
+
+  it('manages contacts and segments', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    await ctx.call('PUT', '/v1/contacts', { tenant: 'linden', email: 'ama@example.com', firstName: 'Ama', attributes: { treatment: 'Facial' }, consent: { marketing: 'granted', source: 'test' } });
+    await ctx.call('POST', '/v1/events', { tenant: 'linden', name: 'booking.created', email: 'ama@example.com' });
+    const added = await app('POST', `${base}/contacts`, { email: 'Kofi@Example.com', firstName: 'Kofi', consent: true });
+    expect(await added.json()).toMatchObject({ email: 'kofi@example.com' });
+
+    const list = (await (await app('GET', `${base}/contacts?search=kofi`)).json()) as { total: number; contacts: { id: string; marketingConsent: string }[] };
+    expect(list).toMatchObject({ total: 1, contacts: [{ marketingConsent: 'granted' }] });
+    const detail = (await (await app('GET', `${base}/contacts/${list.contacts[0]!.id}`)).json()) as { consents: { source: string }[] };
+    expect(detail.consents[0]!.source).toBe('added-by:edem@test.dev');
+
+    const definition = { match: 'all', conditions: [{ type: 'attribute', key: 'treatment', op: 'equals', value: 'facial' }] };
+    expect(await (await app('POST', `${base}/segments/preview`, { definition })).json()).toMatchObject({ size: 1, sample: [{ firstName: 'Ama' }] });
+    const segment = (await (await app('POST', `${base}/segments`, { name: 'Facial clients', definition })).json()) as { id: string };
+    const inSegment = (await (await app('GET', `${base}/contacts?segment=${segment.id}`)).json()) as { total: number };
+    expect(inSegment.total).toBe(1);
+    expect(await (await app('GET', `${base}/vocabulary`)).json()).toEqual({ events: ['booking.created'], attributes: ['treatment'] });
+    expect((await app('POST', `${base}/segments/preview`, { definition: { conditions: [{ type: 'attribute', key: 'x', op: 'equals' }] } })).status).toBe(422);
+    expect((await app('DELETE', `${base}/segments/${segment.id}`)).status).toBe(204);
   });
 });

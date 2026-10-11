@@ -116,7 +116,14 @@ Checked 11 October 2026 with `npm view <pkg> version license`.
 
 Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D20), shadcn/Base UI (added with the first dialogs and menus in stage 2), TanStack Table (added when Audience needs sorting and paging).
 
-## Watch-outs
+## Used in stage 2 (sign-in and audience)
+
+| Project | Licence | Used for |
+|---|---|---|
+| `better-auth` 1.7.7 (checked 11 Oct 2026, published 30 Sep 2026) | MIT | Email and password sign-in, sessions, organisations, through its Drizzle adapter |
+| Neon Auth (docs checked) | n/a, hosted | Considered: Better Auth hosted by Neon with the organisation plugin. Kept as a later option (D27) |
+| Dittofeed segments | MIT | Studied for the rule shapes; we compile rules straight to Postgres instead of materialising them (D31) |
+
 
 - Email builder is the weakest area. Easy Email still peers React ^18.2 and EmailBuilder.js peers up to React 18 with one release in two years; both would need forking for React 19. Maily is the only React 19 option, but v2 is beta (last beta June 2026), so pin the exact version and budget for fixes.
 - `grapesjs-preset-newsletter` has not been released since June 2023. If GrapesJS is used, build on `grapesjs-mjml` and the core; GrapesJS "Studio SDK" is a separate commercial product, so stay on the BSD core.

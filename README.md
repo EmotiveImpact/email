@@ -12,7 +12,7 @@ Email for appointment businesses, sent through Amazon SES. One engine serves thr
 | `packages/db` | Postgres schema (Drizzle), migrations, ids |
 | `packages/engine` | Sending: validation, consent and suppression rules, queue, SES transport, SES events, webhooks, unsubscribe |
 | `packages/sdk` | TypeScript client for the API and a webhook verifier |
-| `apps/api` | Hono API: `/v1` for apps, `/ses/events` for SES, `/u/:token` unsubscribe pages, `/app` for the web app |
+| `apps/api` | Hono API: `/v1` for apps, `/ses/events` for SES, `/u/:token` unsubscribe pages, `/auth` sign-in (Better Auth), `/app` for the web app |
 | `apps/web` | The app: Vite, React 19, TanStack Router and Query, Tailwind 4 |
 
 ## Run it locally
@@ -26,10 +26,11 @@ createdb -O platform platform && createdb -O platform platform_test
 pnpm install
 cp .env.example .env
 pnpm db:migrate
-pnpm db:seed          # prints DEV_DASHBOARD_APP_ID and two API keys
-# add DEV_DASHBOARD_APP_ID=... to .env
+pnpm db:seed          # a demo studio, sixty clients, a month of email, and two API keys
 pnpm dev              # API on :8787, app on :5173
 ```
+
+Sign in at http://localhost:5173 as `demo@example.com` with the password `linden-demo-2026`, or create a new login.
 
 With `TRANSPORT=log` nothing leaves your machine: emails are stored and marked sent. Set `TRANSPORT=ses` with AWS credentials in the environment to send for real.
 
