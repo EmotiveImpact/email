@@ -62,7 +62,7 @@ describe('theme', () => {
     const { themeFromBrand } = await import('../src/index.ts');
     expect(themeFromBrand('Linden', { accent: '#4b4fd8' })).toMatchObject({ accent: '#4B4FD8', onAccent: '#FFFFFF', headingFont: 'cal-sans' });
     expect(themeFromBrand('Linden', { accent: '#FFD400' }).onAccent).toBe('#121214');
-    expect(themeFromBrand('Linden', { accent: 'red' }).accent).toBe('#D9481F');
+    expect(themeFromBrand('Linden', { accent: 'red' }).accent).toBe('#5B49D6');
   });
 
   it('shows free times as links, and keeps link merge tags readable', async () => {

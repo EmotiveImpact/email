@@ -148,7 +148,10 @@ function Rail({ tenant, assistant, onAssistant }: { tenant: Tenant; assistant: b
       >
         <Sparkles size={20} strokeWidth={1.6} />
       </button>
-      <div className="mt-auto flex flex-col items-center gap-1.5">
+      <div
+        className="mt-auto flex flex-col items-center gap-1.5"
+        style={{ '--rail-icon': 'var(--rail-foot-icon)', '--rail-active-bg': 'var(--rail-foot-active-bg)', '--rail-active-ink': 'var(--rail-foot-active-ink)' } as CSSProperties}
+      >
         {BOTTOM.map((area) => (
           <RailLink key={area.to} area={area} tenant={tenant.id} />
         ))}
