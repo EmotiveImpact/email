@@ -94,7 +94,7 @@ export function createPlatformSync(ctx: Context) {
       const old = was.get(c.id)
       was.delete(c.id)
       if (!c.email) continue
-      if (old && old.email === c.email && old.name === c.name && old.marketingConsent === c.marketingConsent) continue
+      if (old && old.email === c.email && old.name === c.name && old.marketingConsent === c.marketingConsent && old.birthday === c.birthday) continue
       const [firstName, ...rest] = c.name.trim().split(/\s+/)
       queue(org.id, 'contact', c.id, {
         tenant: org.id,
@@ -102,6 +102,8 @@ export function createPlatformSync(ctx: Context) {
         externalId: c.id,
         firstName,
         lastName: rest.join(' ') || undefined,
+        // "MM-DD", as Saleane stores it. The birthday flow sends a week before.
+        ...(c.birthday ? { attributes: { birthday: c.birthday } } : {}),
         // Only when it is new or changed, so the platform records when consent was given or withdrawn.
         ...(!old || old.marketingConsent !== c.marketingConsent
           ? { consent: { marketing: c.marketingConsent ? 'granted' : 'withdrawn', source: 'saleane' } }
@@ -139,9 +141,10 @@ export function createPlatformSync(ctx: Context) {
           // A business the platform has not seen yet: create it and try again straight away.
           if (error instanceof PlatformApiError && error.code === 'tenant_not_found') {
             const org = ctx.systemOrg(row.organisation_id)
-            // The address goes in only when the business is created, so later changes made in the
-            // platform's Appearance settings are kept. Marketing email needs it at the foot.
-            if (org) await platform!.tenants.put(row.organisation_id, { ...tenantBody(org.state), brand: { address: org.state.organisation.address } })
+            // The address and review link go in only when the business is created, so later changes
+            // made in the platform's Appearance settings are kept. Marketing email needs the address.
+            const { address, reviewUrl } = org?.state.organisation ?? {}
+            if (org) await platform!.tenants.put(row.organisation_id, { ...tenantBody(org.state), brand: { address, ...(reviewUrl ? { reviewUrl } : {}) } })
           }
           const wait = Math.min(60_000 * 2 ** row.attempts, 6 * 3_600_000)
           ctx.db.run('UPDATE platform_sync SET attempts = attempts + 1, next_attempt_at = ?, error = ? WHERE id = ?', Date.now() + wait, String(error), row.id)
@@ -320,6 +323,8 @@ The studio takes Saleane's look if you pass `theme: { accent: '#…', headingFon
 ## 5. Switching off the old marketing
 
 Once a studio is connected, hide Saleane's News, birthday, miss-you and due-back settings for it and stop `marketingEmails` queueing them, so clients never get two of the same nudge. The Marketing results page (`server/routes/marketing.ts`) can stay for history.
+
+Saleane's after-visit feedback email already links to the studio's review page (`organisation.reviewUrl`). Keep it, and leave the platform's **Ask for a review** flow off for Saleane studios, so nobody is asked twice. The platform's flow is for apps that have no feedback email of their own, such as Caleane.
 
 ## Checking it works
 

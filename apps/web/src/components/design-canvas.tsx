@@ -6,6 +6,7 @@
  * Drawing uses Konva (MIT), so what you edit is exactly what is saved.
  */
 import { blankDesign, DESIGN_SIZES, designTemplates, layerId, type DesignSize } from '@platform/content/design';
+import { useDialog } from './dialog.ts';
 import type Konva from 'konva';
 import {
   AlignCenter,
@@ -250,8 +251,11 @@ export function DesignCanvas({ asset, photo, saveLabel = 'Save design', onSaved,
     add({ id: layerId(), type: 'image', name: picked.name, src: picked.url, assetId: picked.id, fit: 'cover', x: (doc.width - width) / 2, y: 0, width, height: width / ratio, rotation: 0, opacity: 1, locked: false });
   }
 
+  // Escape does not close the canvas, so a stray key never loses unsaved work.
+  const dialog = useDialog(onClose, { escape: false });
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col gap-3 bg-canvas p-3" role="dialog" aria-label="Design">
+    <div {...dialog} className="fixed inset-0 z-50 flex flex-col gap-3 bg-canvas p-3 outline-none" aria-label="Design">
       <header className="flex flex-wrap items-center gap-3 px-1">
         <button type="button" aria-label="Close the canvas" onClick={onClose} className="grid size-10 cursor-pointer place-items-center rounded-full border-0 bg-paper text-ink shadow-ring hover:bg-soft">
           <X size={18} />

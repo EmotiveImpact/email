@@ -234,6 +234,18 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `standardwebhooks` | MIT | Already the SDK's only dependency; the guides keep it that way |
 | Saleane's own `instantIn` | Ours | Used in the Saleane guide rather than adding anything |
 
+## Stage 12: trust, inbox checks, plays and accessibility
+
+| Project | Licence | Use |
+|---|---|---|
+| `request-filtering-agent` | MIT | Studied for blocking webhooks to private addresses. Not added: it had a bypass in 2025 (CVE-2025-57814), and our check is twenty lines we can test. Its address list informed ours |
+| `ssrf-req-filter` | MIT | Studied for the same; works only as an http agent, and we post with `fetch` |
+| `rate-limiter-flexible` | ISC | Considered for rate limits; has a Postgres store, but brings a table layout and options we do not need. Our fixed window in one table does the job (D114) |
+| `hono-rate-limiter` | MIT | Considered; its stores are memory, Redis or Cloudflare, none shared across our containers without adding Redis |
+| `axe-core` | MPL-2.0 | Used as a tool only, run from outside the repo against the dev app to find accessibility problems. Not shipped and not a dependency |
+| `focus-trap` / `focus-trap-react` | MIT | Considered for keeping keyboard focus inside panels; a 40-line hook covers our five panels without a dependency |
+| Gmail and Yahoo sender rules | Docs | Checked again for the inbox warnings and the visible unsubscribe fallback |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -276,3 +288,10 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://github.com/aws-actions/configure-aws-credentials
 - https://docs.aws.amazon.com/cdk/v2/guide/home.html
 - https://support.google.com/a/answer/81126 (Gmail sender guidelines)
+- https://github.com/azu/request-filtering-agent
+- https://advisories.gitlab.com/pkg/npm/request-filtering-agent/CVE-2025-57814/
+- https://github.com/y-mehta/ssrf-req-filter
+- https://classic.yarnpkg.com/en/package/rate-limiter-flexible
+- https://npmjs.com/package/hono-rate-limiter
+- https://licenses.dev/npm/axe-core/4.7.0
+- https://npmjs.com/package/focus-trap-react

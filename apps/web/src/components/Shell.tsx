@@ -323,7 +323,7 @@ function Assistant({ tenant, onClose }: { tenant: Tenant; onClose: () => void })
 
 function NotFound({ tenants }: { tenants: Tenant[] }) {
   return (
-    <div className="grid h-full place-items-center p-6">
+    <main className="grid h-full place-items-center p-6">
       <div className="max-w-sm text-center">
         <h1 className="display text-2xl">No business with that name</h1>
         {tenants[0] && (
@@ -332,7 +332,7 @@ function NotFound({ tenants }: { tenants: Tenant[] }) {
           </Link>
         )}
       </div>
-    </div>
+    </main>
   );
 }
 

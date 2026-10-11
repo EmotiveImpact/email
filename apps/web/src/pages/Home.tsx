@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useSuspenseQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { ArrowDownRight, ArrowUpRight, Check } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
 import { activityQuery, meQuery, overviewQuery, type Activity, type Opportunity, type Overview } from '../api.ts';
@@ -268,12 +268,14 @@ function WeekAhead({ overview, className }: { overview: Overview | undefined; cl
         className="grid flex-1 gap-[5px] text-[11.5px]"
         style={{ gridTemplateColumns: `64px repeat(${week.days.length}, minmax(0, 1fr))` }}
       >
-        <span role="presentation" />
-        {week.days.map((d) => (
-          <span key={d.day} role="columnheader" className={cx('text-center', q?.day === d.day ? 'font-bold text-accent-ink' : 'text-faint')}>
-            {weekdayOf(d.day)}
-          </span>
-        ))}
+        <div role="row" className="contents">
+          <span role="cell" />
+          {week.days.map((d) => (
+            <span key={d.day} role="columnheader" className={cx('text-center', q?.day === d.day ? 'font-bold text-accent-ink' : 'text-faint')}>
+              {weekdayOf(d.day)}
+            </span>
+          ))}
+        </div>
         {week.parts.map((part, pi) => (
           <div key={part} role="row" className="contents">
             <span role="rowheader" className="self-center text-faint">
@@ -387,6 +389,7 @@ function OpportunityCard({ opportunity: o, n }: { opportunity: Opportunity; n: n
 
 function FlowsCard({ overview, className }: { overview: Overview | undefined; className?: string }) {
   const tenant = useTenant();
+  const navigate = useNavigate();
   const days = overview?.days ?? 30;
   return (
     <Card className={cx('px-[22px] pt-5 pb-2', className)}>
@@ -415,10 +418,18 @@ function FlowsCard({ overview, className }: { overview: Overview | undefined; cl
           </span>
         </div>
         {overview?.flows.map((f) => (
-          <Link key={f.id} role="row" to="/$tenant/flows/$flow" params={{ tenant: tenant.id, flow: f.id }} className="group contents">
+          <div
+            key={f.id}
+            role="row"
+            className="group contents cursor-pointer"
+            onClick={() => void navigate({ to: '/$tenant/flows/$flow', params: { tenant: tenant.id, flow: f.id } })}
+          >
             <span role="cell" className="flex items-center gap-2.5 border-t border-rule py-3 group-hover:text-accent-ink">
-              <span className={cx('size-2 shrink-0 rounded-full', f.live ? 'bg-[#2E8B57]' : 'bg-[#C8C7C2]')} />
-              <span className={cx('truncate', !f.live && 'text-muted')}>{f.name}</span>
+              <span aria-hidden="true" className={cx('size-2 shrink-0 rounded-full', f.live ? 'bg-[#2E8B57]' : 'bg-[#C8C7C2]')} />
+              <Link to="/$tenant/flows/$flow" params={{ tenant: tenant.id, flow: f.id }} className={cx('truncate', !f.live && 'text-muted')}>
+                {f.name}
+                {!f.live && <span className="sr-only"> (off)</span>}
+              </Link>
             </span>
             <span role="cell" className="flex h-full items-center border-t border-rule">
               {f.live || f.sent ? <Sparkline values={f.daily} muted={!f.live} label={`${f.sent} sent`} /> : <span className="text-[12.5px] text-faint">Off</span>}
@@ -429,7 +440,7 @@ function FlowsCard({ overview, className }: { overview: Overview | undefined; cl
             <span role="cell" className={cx('num border-t border-rule py-3 text-right font-semibold', !f.revenue && 'font-normal text-faint')}>
               {f.revenue ? money(f.revenue) : '–'}
             </span>
-          </Link>
+          </div>
         ))}
       </div>
     </Card>

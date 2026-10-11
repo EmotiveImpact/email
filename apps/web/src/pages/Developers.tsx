@@ -13,7 +13,7 @@ function Code({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="relative">
-      <pre className="m-0 overflow-x-auto rounded-xl bg-[#141416] px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-[#E7E4DE]">{children}</pre>
+      <pre tabIndex={0} className="m-0 overflow-x-auto rounded-xl bg-[#141416] px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-[#E7E4DE]">{children}</pre>
       <button
         type="button"
         aria-label="Copy"

@@ -137,6 +137,7 @@ Add `OPENAI_API_KEY` to the secret and run Deploy again. Each plan includes a mo
 - Sign up for Google Postmaster Tools for `mail.<yourdomain>` and each business domain that sends a lot. Gmail and Yahoo require SPF, DKIM and DMARC that line up, one-click unsubscribe, and a spam rate under 0.3%; the platform does the first three, and the reputation guard pauses a business before the last one hurts everyone.
 - When DMARC reports look clean for a few weeks, move `_dmarc.mail.<yourdomain>` from `p=none` to `p=quarantine`.
 - Turn on Neon's backups beyond the default if you need more than the plan's restore window.
+- Decide who pays for each connected app. An app made with an account (sign-up, or Saleane and Caleane from the seed) pays for all its businesses on one bill. An app a customer adds in Developers bills each business on its own. To make an added app pay for its businesses instead, run `update apps set partner = true where id = '<app id>';` in Neon's SQL editor.
 
 ## Everyday
 

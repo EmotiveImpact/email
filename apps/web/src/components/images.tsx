@@ -3,6 +3,7 @@
  * library. Used by the email editor and the Images page.
  */
 import { useQuery } from '@tanstack/react-query';
+import { useDialog } from './dialog.ts';
 import { Check, ImagePlus, Sparkles, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { libraryQuery, useGenerateImages, useUploadAsset, type Asset, type AssetKind, type ImageShape } from '../api.ts';
@@ -68,15 +69,11 @@ export function ImagePicker({
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [chosen, setChosen] = useState<Asset | null>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-      <div role="dialog" aria-label={title} className="flex h-full w-full max-w-[520px] flex-col bg-paper shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div {...dialog} aria-label={title} className="flex h-full w-full max-w-[520px] outline-none flex-col bg-paper shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <h2 className="display m-0 flex items-center gap-2.5 text-[22px]">
             <span className="grid size-8 place-items-center rounded-[10px] bg-accent text-on-accent">

@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useDialog } from '../components/dialog.ts';
 import { ArrowRight, FileUp, Plus, Search, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { contactQuery, contactsQuery, segmentsQuery, useAddContact, type Consent, type Contact, type Rhythm } from '../api.ts';
@@ -345,21 +346,18 @@ function Segments() {
 
 function ContactPanel({ tenant, contact, onClose }: { tenant: string; contact: string; onClose: () => void }) {
   const { data, isPending, isError } = useQuery(contactQuery(tenant, contact));
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
 
   return (
     <div className="fixed inset-0 z-20 flex justify-end bg-black/10" onClick={onClose}>
-      <aside
+      <div
+        {...dialog}
         aria-label="Person"
         onClick={(e) => e.stopPropagation()}
-        className="m-3 flex w-full max-w-[440px] flex-col overflow-hidden rounded-[18px] border border-rule bg-paper shadow-[0_12px_40px_#00000026]"
+        className="m-3 flex w-full max-w-[440px] flex-col overflow-hidden rounded-[18px] border border-rule bg-paper outline-none shadow-[0_12px_40px_#00000026]"
       >
         <div className="flex h-[58px] shrink-0 items-center justify-between border-b border-rule pr-3 pl-5">
-          <span className="text-sm font-semibold">{data ? fullName(data.contact) : 'Person'}</span>
+          <h2 className="m-0 text-sm font-semibold">{data ? fullName(data.contact) : 'Person'}</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted hover:bg-soft">
             <X size={17} />
           </button>
@@ -441,7 +439,7 @@ function ContactPanel({ tenant, contact, onClose }: { tenant: string; contact: s
             </div>
           )}
         </div>
-      </aside>
+      </div>
     </div>
   );
 }
@@ -489,14 +487,10 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
 
 /** Import from a spreadsheet: clients, or past visits for each client's rhythm. */
 function ImportPanel({ tenant, kind, onKind, onClose }: { tenant: string; kind: ImportKind; onKind: (k: ImportKind) => void; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialog(onClose);
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
-      <div role="dialog" aria-label="Import" className="flex h-full w-full max-w-[600px] flex-col gap-5 overflow-y-auto bg-paper px-6 py-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div {...dialog} aria-label="Import" className="outline-none flex h-full w-full max-w-[600px] flex-col gap-5 overflow-y-auto bg-paper px-6 py-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h2 className="display m-0 text-[22px]">Import from a spreadsheet</h2>
           <button type="button" aria-label="Close" onClick={onClose} className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted hover:bg-soft">
