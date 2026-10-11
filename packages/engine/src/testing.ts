@@ -20,10 +20,10 @@ export async function setup(options: { transport?: Transport; fetch?: typeof fet
     fetch: options.fetch,
     config: { publicUrl: 'https://api.test', signingSecret: 'test-secret', defaultFrom: 'hello@platform.test' },
   });
-  const { appId } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });
+  const { accountId, appId } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });
   const { key } = await engine.createApiKey(appId, 'test');
   const app = await engine.authenticate(key);
-  await engine.upsertTenant(appId, 'linden', { name: 'Linden Studio', fromEmail: 'news@linden.test' });
+  const tenant = await engine.upsertTenant(appId, 'linden', { name: 'Linden Studio', fromEmail: 'news@linden.test' });
   const drain = () => queue.drain((name, data) => engine.runJob(name, data));
-  return { db, pool, engine, transport, queue, app, appId, key, drain, close: () => pool.end() };
+  return { db, pool, engine, transport, queue, app, accountId, appId, tenant, key, drain, close: () => pool.end() };
 }

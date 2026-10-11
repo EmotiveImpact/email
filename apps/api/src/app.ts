@@ -9,8 +9,9 @@ import {
   type WebhookEvent,
 } from '@platform/engine';
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
+import type { Auth } from './auth.ts';
+import { dashboardRoutes, publicMessage } from './dashboard.ts';
 
 type App = Awaited<ReturnType<Engine['authenticate']>>;
 type Env = { Variables: { app: App } };
@@ -22,11 +23,8 @@ export type ApiOptions = {
   webOrigin: string;
   /** Only accept SES events from this SNS topic. */
   sesTopicArn?: string;
-  /**
-   * Serves the web app's /app/* endpoints for one demo app without sign-in. Local development only,
-   * until accounts and sign-in arrive (stage 2).
-   */
-  devDashboardAppId?: string;
+  /** Sign-in for the web app. */
+  auth: Auth;
   verifySns?: (m: SnsMessage) => Promise<boolean>;
   fetch?: typeof fetch;
 };
@@ -165,78 +163,13 @@ export function createApi(options: ApiOptions) {
     return c.html(page('Unsubscribed', `<h1>You are unsubscribed</h1><p>${escapeHtml(email)} will not get news from ${escapeHtml(tenantName)} again.</p>`));
   });
 
-  // ------------------------------------------------------------------ the web app's own endpoints
+  // ------------------------------------------------------------------ sign-in and the web app
 
-  const appRoutes = new Hono<Env>();
-  appRoutes.use(cors({ origin: options.webOrigin }));
-  appRoutes.use(async (c, next) => {
-    if (!options.devDashboardAppId) throw new PlatformError('not_found', 'Not found.', 404);
-    await next();
-  });
-
-  appRoutes.get('/tenants', async (c) => {
-    const rows = await db.select().from(tenants).where(eq(tenants.appId, options.devDashboardAppId!));
-    return c.json(rows.map(publicTenant));
-  });
-
-  appRoutes.get('/tenants/:externalId/activity', async (c) => {
-    const tenant = await engine.getTenant(options.devDashboardAppId!, c.req.param('externalId'));
-    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-    const [recent, stats, daily] = await Promise.all([
-      engine.listMessages(tenant.id, { limit: 10 }),
-      engine.messageStats(tenant.id, since),
-      engine.dailyCounts(tenant.id, since),
-    ]);
-    return c.json({ stats, daily, messages: recent.map(publicMessage) });
-  });
-
-  appRoutes.get('/tenants/:externalId/messages', async (c) => {
-    const tenant = await engine.getTenant(options.devDashboardAppId!, c.req.param('externalId'));
-    const show = c.req.query('show') ?? 'all';
-    if (show !== 'all' && !(show in SHOW)) throw new PlatformError('invalid_request', `show must be one of all, ${Object.keys(SHOW).join(', ')}.`, 422);
-    const rows = await engine.listMessages(tenant.id, { limit: 100, statuses: SHOW[show as keyof typeof SHOW] });
-    return c.json(rows.map(publicMessage));
-  });
-
-  appRoutes.put('/tenants/:externalId/brand', async (c) => {
-    const tenant = await engine.getTenant(options.devDashboardAppId!, c.req.param('externalId'));
-    const brand = (await body(c)) as Record<string, unknown>;
-    const updated = await engine.upsertTenant(options.devDashboardAppId!, tenant.externalId, {
-      name: tenant.name,
-      fromEmail: tenant.fromEmail ?? undefined,
-      replyTo: tenant.replyTo ?? undefined,
-      sesTenant: tenant.sesTenant ?? undefined,
-      brand: { ...tenant.brand, ...brand } as never,
-    });
-    return c.json(publicTenant(updated));
-  });
-
-  api.route('/app', appRoutes);
+  api.on(['GET', 'POST'], '/auth/*', (c) => options.auth.handler(c.req.raw));
+  api.route('/app', dashboardRoutes({ engine, db, auth: options.auth, webOrigin: options.webOrigin }));
   return api;
 }
 
-/** How the Sending page groups statuses. */
-const SHOW = {
-  arrived: ['queued', 'sending', 'sent', 'delivered', 'delivery_delayed'],
-  held: ['suppressed'],
-  problems: ['bounced', 'complained', 'rejected', 'failed'],
-} as const satisfies Record<string, readonly (typeof messages.$inferSelect)['status'][]>;
-
 function publicTenant(t: typeof tenants.$inferSelect) {
   return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, brand: t.brand };
-}
-
-function publicMessage(m: typeof messages.$inferSelect) {
-  return {
-    id: m.id,
-    stream: m.stream,
-    to: m.to,
-    from: m.from,
-    subject: m.subject,
-    status: m.status,
-    reason: m.status === 'suppressed' || m.status === 'failed' ? m.error : null,
-    tags: m.tags,
-    createdAt: m.createdAt,
-    sentAt: m.sentAt,
-  };
 }

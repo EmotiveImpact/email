@@ -11,11 +11,6 @@ const AREAS = {
     lead: 'Emails that send themselves when something happens in your diary.',
     points: ['Fill empty slots: offer quiet days to the clients who usually book them', 'Due for a visit: nudge clients who have passed their usual gap', 'Welcome: turn a first visit into a second'],
   },
-  audience: {
-    title: 'Audience',
-    lead: 'Everyone who has booked, with what they booked, when, and whether they want news.',
-    points: ['Groups that update themselves, such as “facial regulars on Thursdays”', 'Consent recorded with where and when it was given', 'Import from your booking app in one step'],
-  },
 } as const;
 
 export function Soon({ area }: { area: keyof typeof AREAS }) {

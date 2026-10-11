@@ -20,6 +20,7 @@ import {
 import { and, desc, eq, inArray, isNull, or, sql } from '@platform/db';
 import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
+import { createAudience } from './audience.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
 import { parseSesEvent, type SesEvent } from './ses-events.ts';
 import { PermanentSendError, PlatformError, type Transport } from './types.ts';
@@ -158,6 +159,17 @@ const SES_WEBHOOK: Partial<Record<SesEvent['type'], WebhookEvent>> = {
   click: 'email.clicked',
 };
 
+/** A readable, unique slug: "Linden Studio" → "linden-studio-7k2q". */
+export function slugify(name: string, id: string) {
+  const base = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+  return `${base || 'account'}-${id.slice(-4)}`;
+}
+
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
@@ -180,10 +192,16 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
     const accountId = newId('acc');
     const appId = newId('app');
     await db.transaction(async (tx) => {
-      await tx.insert(accounts).values({ id: accountId, name: input.account });
+      await tx.insert(accounts).values({ id: accountId, name: input.account, slug: slugify(input.account, accountId) });
       await tx.insert(apps).values({ id: appId, accountId, name: input.app });
     });
     return { accountId, appId };
+  }
+
+  /** Adds an app (a product that sends) to an existing account. */
+  async function createApp(accountId: string, name: string) {
+    const [row] = await db.insert(apps).values({ id: newId('app'), accountId, name }).returning();
+    return row!;
   }
 
   /** Creates an API key. The full key is returned once and never stored. */
@@ -635,7 +653,9 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
   }
 
   return {
+    ...createAudience(db),
     createAccountWithApp,
+    createApp,
     createApiKey,
     authenticate,
     upsertTenant,

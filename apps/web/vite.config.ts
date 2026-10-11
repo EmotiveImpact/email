@@ -9,6 +9,6 @@ export default defineConfig({
   server: {
     port: 5173,
     // The app calls /app/* on its own origin in development, so no CORS setup is needed locally.
-    proxy: { '/app': api },
+    proxy: { '/app': api, '/auth': api },
   },
 });

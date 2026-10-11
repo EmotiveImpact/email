@@ -133,3 +133,40 @@ One entry per real choice: what we picked, what else we considered, and why. New
 ### D26. Sample diary until the diary sync exists
 - **Picked:** Home has the "Your next 7 days" panel from day one, marked "Sample diary", with real data once Saleane's bookings flow in (stage 6).
 - **Why:** the diary is the product's point of difference, so Home is shaped around it now rather than redesigned later.
+
+## Stage 2
+
+### D27. Sign-in runs inside our API with Better Auth
+- **Picked:** Better Auth (MIT), mounted in the Hono API at `/auth`, storing users, sessions and logins in our own Postgres tables through Drizzle. Its organisations plugin is our "account": people belong to an account, and the account owns the apps and businesses.
+- **Considered:** Neon Auth (Better Auth hosted by Neon, keeps its tables in a `neon_auth` schema), Clerk, Supabase Auth, Auth.js.
+- **Why:** sign-in data sits next to everything else, in our migrations, on any Postgres host. Saleane's embedded studio will sign people in with tokens from Saleane, which is simplest when we run the sign-in code ourselves. Because Neon Auth is the same Better Auth underneath, moving to it later is small.
+- **Revisit if:** we want hosted extras (social sign-in set-up, user management screens) without building them.
+
+### D28. Neon hosts the database (London)
+- **Picked:** Neon Postgres in AWS eu-west-2, next to SES.
+- **Considered:** Supabase (earlier assumption), Amazon RDS.
+- **Why:** plain Postgres, so nothing in the code changes. Neon adds a database branch per pull request for testing, and it scales down when idle, which keeps early costs low. Supabase's extras (its auth, storage, client library) are things we are not using.
+- **Revisit if:** sending volume needs an always-on instance sized for heavy writes; RDS then.
+
+### D29. An account is Better Auth's organisation
+- **Picked:** Better Auth's organisation model is stored in our `accounts` table, so one account owns its people (members with roles), its apps (Saleane, Caleane, "Direct") and their businesses. Sign-in tables are named for what they hold (`users`, `sessions`, `logins`, `members`, `invitations`).
+- **Considered:** a separate organisations table linked to accounts.
+- **Why:** one idea, one table. Every account created from the app gets a "Direct" app, so a business with no software of its own sends the same way Saleane's studios do.
+
+### D30. The web app and API share one origin
+- **Picked:** the app calls `/app` and `/auth` on its own origin; Vite proxies them in development, and in production the same domain routes them to the API.
+- **Why:** sign-in cookies stay first-party (no third-party cookie rules, no CORS preflights). The API still allows the app's origin with credentials if they are ever split.
+
+### D31. Segments are rules, worked out when used
+- **Picked:** a segment is saved as rules (consent, a detail, how often or when someone last did something, when they were added, their email), combined with all or any, and compiled to one SQL query each time it is counted or sent to.
+- **Considered:** materialised membership tables updated by a background job (Dittofeed's approach, MIT, built on ClickHouse).
+- **Why:** always current with no jobs to run, and Postgres handles studio-sized lists (thousands of people) in milliseconds with the event indexes. Every value is bound as a parameter, never spliced into SQL.
+- **Revisit if:** a tenant passes about 100,000 contacts or segments need to trigger flows on entry; then materialise membership.
+
+### D32. New businesses start with four segments
+- **Picked:** "Happy to hear news", "Regulars" (3+ bookings in 180 days), "Due for a visit" (last booking over 42 days ago) and "New this month".
+- **Why:** the first campaign should need no set-up. "Due for a visit" uses a fixed 42 days for now; stage 6 replaces it with each client's own rhythm from the diary.
+
+### D33. Staff can add people, and their consent is recorded with who added it
+- **Picked:** "Add person" records consent as `added-by:<staff email>` with the time, only when the tick box is ticked.
+- **Why:** UK GDPR needs proof of consent; this shows who vouched for it.

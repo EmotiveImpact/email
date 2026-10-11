@@ -32,11 +32,11 @@ export function Developers() {
 const email = new PlatformClient({ apiKey: process.env.PLATFORM_API_KEY! });
 
 // Keep the business in step with your app.
-await email.tenants.put('${tenant.id}', { name: '${tenant.name}', fromEmail: '${tenant.fromEmail ?? 'hello@example.com'}' });
+await email.tenants.put('${tenant.externalId}', { name: '${tenant.name}', fromEmail: '${tenant.fromEmail ?? 'hello@example.com'}' });
 
 // A booking reminder. The key makes retries safe: the same key never sends twice.
 await email.emails.send({
-  tenant: '${tenant.id}',
+  tenant: '${tenant.externalId}',
   to: 'ama@example.com',
   subject: 'See you Thursday at 10:00',
   html: '<p>Hi Ama, see you on Thursday.</p>',
@@ -47,18 +47,18 @@ await email.emails.send({
   -H "Authorization: Bearer $PLATFORM_API_KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: booking-1042-reminder" \\
-  -d '{"tenant":"${tenant.id}","to":"ama@example.com","subject":"See you Thursday","text":"Hi Ama"}'`;
+  -d '{"tenant":"${tenant.externalId}","to":"ama@example.com","subject":"See you Thursday","text":"Hi Ama"}'`;
 
   const consent = `// News needs recorded consent. Send it when a client ticks the box.
 await email.contacts.upsert({
-  tenant: '${tenant.id}',
+  tenant: '${tenant.externalId}',
   email: 'ama@example.com',
   firstName: 'Ama',
   consent: { marketing: 'granted', source: 'booking-form' },
 });
 
 // Tell us what happens in your app; flows will start from these.
-await email.events.record({ tenant: '${tenant.id}', name: 'booking.created', email: 'ama@example.com' });`;
+await email.events.record({ tenant: '${tenant.externalId}', name: 'booking.created', email: 'ama@example.com' });`;
 
   const webhooks = `import { verifyWebhook } from '@platform/sdk';
 
@@ -68,7 +68,7 @@ if (event.type === 'email.bounced') markAddressBad(event.data.to);`;
 
   return (
     <>
-      <PageTitle title="Developers" subtitle={`Send from your app as ${tenant.name}. This business’s id is “${tenant.id}”.`} />
+      <PageTitle title="Developers" subtitle={`Send from your app as ${tenant.name}. This business’s id is “${tenant.externalId}”.`} />
       <Card className="flex flex-col gap-3 px-5 py-5">
         <CardTitle aside="TypeScript">Send an email</CardTitle>
         <Code>{sdk}</Code>
