@@ -370,7 +370,17 @@ export type Campaign = {
   stats: CampaignStats | null;
 };
 
-export type CampaignDetail = Campaign & { problems: string[]; audience: Audience | null; sender: { from: string; own: boolean } };
+export type CampaignDetail = Campaign & {
+  problems: string[];
+  /** Inbox advice: does not stop sending. */
+  warnings: string[];
+  audience: Audience | null;
+  sender: { from: string; own: boolean };
+};
+/** A ready-made campaign to start from. */
+export type Play = { id: string; name: string; goal: string; for: 'salon' | 'studio' | 'any'; diary: boolean };
+export const playsQuery = queryOptions({ queryKey: ['plays'], queryFn: () => request<Play[]>('/app/plays'), staleTime: Infinity });
+
 export type CampaignPatch = Partial<Pick<Campaign, 'name' | 'subject' | 'segmentId' | 'content'>>;
 
 const campaignPath = (tenant: string, id?: string) => `/app/tenants/${tenant}/campaigns${id ? `/${id}` : ''}`;
@@ -398,7 +408,7 @@ export const previewEmail = (tenant: string, content: EmailDoc) =>
 export function useCreateCampaign(tenant: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: CampaignPatch = {}) => request<Campaign>(campaignPath(tenant), { method: 'POST', body: JSON.stringify(input) }),
+    mutationFn: (input: CampaignPatch & { play?: string } = {}) => request<Campaign>(campaignPath(tenant), { method: 'POST', body: JSON.stringify(input) }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns', tenant] }),
   });
 }

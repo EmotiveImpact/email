@@ -368,9 +368,12 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     ...(typeof body.subject === 'string' && { subject: body.subject }),
     ...(body.segmentId !== undefined && { segmentId: typeof body.segmentId === 'string' && body.segmentId ? body.segmentId : null }),
     ...(body.content !== undefined && { content: body.content }),
+    ...(typeof body.play === 'string' && { play: body.play }),
   });
 
   r.get('/tenants/:id/campaigns', async (c) => c.json(await engine.listCampaigns((await tenantOf(c)).id)));
+  /** Ready-made campaigns to start from. */
+  r.get('/plays', (c) => c.json(engine.listPlays()));
 
   r.post('/tenants/:id/campaigns', async (c) => {
     const tenant = await tenantOf(c);

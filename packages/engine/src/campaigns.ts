@@ -2,7 +2,7 @@
  * Campaigns: write once, send to a segment. Sending expands the audience into one stored message
  * per person (so each has its own history and unsubscribe link) and paces them through the queue.
  */
-import { EmailDoc, fillMergeTags, problems, renderEmail, starterDoc, themeFromBrand, unknownMergeTags, type SlotLink } from '@platform/content';
+import { EmailDoc, fillMergeTags, inboxWarnings, playById, PLAYS, problems, renderEmail, starterDoc, themeFromBrand, unknownMergeTags, type SlotLink } from '@platform/content';
 import {
   and,
   campaigns,
@@ -59,6 +59,12 @@ export function sampleValues(tenant: { name: string; brand: { bookingUrl?: strin
   };
 }
 
+/** The first "[fill this in]" left from a play, if any. Markdown links, [words](url), do not count. */
+export function unfilled(subject: string, doc: EmailDoc) {
+  const words = [subject, ...doc.blocks.map((b) => (b.type === 'heading' || b.type === 'text' ? b.text : b.type === 'button' ? b.label : ''))].join('\n');
+  return /\[[^\]\n]{1,80}\](?!\()/.exec(words)?.[0] ?? null;
+}
+
 /** True when the email links to the booking page through {{booking_url}}. */
 export const usesBookingUrl = (subject: string, content: unknown) => /\{\{\s*booking_url/.test(`${subject} ${JSON.stringify(content)}`);
 
@@ -96,8 +102,20 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     return row;
   }
 
-  async function createCampaign(tenantId: string, input: { name?: string; subject?: string; segmentId?: string | null; content?: unknown }, createdBy?: string) {
+  /** The ready-made campaigns, without their content (that is made when one is chosen). */
+  const listPlays = () => PLAYS.map((p) => ({ id: p.id, name: p.name, goal: p.goal, for: p.for, diary: p.diary }));
+
+  async function createCampaign(
+    tenantId: string,
+    input: { name?: string; subject?: string; segmentId?: string | null; content?: unknown; play?: string },
+    createdBy?: string,
+  ) {
     const tenant = await tenantById(tenantId);
+    if (input.play) {
+      const play = playById(input.play);
+      if (!play) throw new PlatformError('not_found', 'No such play.', 404);
+      input = { ...input, name: input.name ?? play.name, subject: input.subject ?? play.subject, content: input.content ?? play.doc() };
+    }
     const starter = input.content === undefined;
     // The starter is a "space this week" email, so it arrives with a subject to match; owners can
     // send it as it is or change it.
@@ -167,6 +185,8 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     const doc = parseContent(campaign.content);
     const found = [...problems(doc)];
     if (!campaign.subject.trim()) found.unshift('Add a subject line.');
+    const blank = unfilled(campaign.subject, doc);
+    if (blank) found.push(`Fill in the part in square brackets: ${blank}.`);
     const typos = unknownMergeTags(`${campaign.subject} ${JSON.stringify(doc.blocks)}`);
     if (typos.length) found.push(`Unknown merge tag: {{${typos[0]}}}.`);
     if (!tenant.brand.address?.trim()) found.push('Add your postal address in Appearance; it goes at the foot of the email.');
@@ -178,7 +198,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
       const limit = await sendingProblem(campaign.tenantId, audience.eligible);
       if (limit) found.push(limit);
     }
-    return { problems: found, audience };
+    return { problems: found, warnings: inboxWarnings({ subject: campaign.subject, doc }), audience };
   }
 
   /** Queues the campaign to go now or at `at`. It is checked again when it goes. */
@@ -385,14 +405,15 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
 
   async function campaignDetail(tenantId: string, id: string) {
     const campaign = await getCampaign(tenantId, id);
-    const [{ problems: found, audience }, stats] = await Promise.all([
-      campaign.status === 'draft' ? readiness(campaign) : Promise.resolve({ problems: [] as string[], audience: null }),
+    const [{ problems: found, warnings, audience }, stats] = await Promise.all([
+      campaign.status === 'draft' ? readiness(campaign) : Promise.resolve({ problems: [] as string[], warnings: [] as string[], audience: null }),
       campaignStats([campaign.id], tenantId),
     ]);
     const sender = await senderFor(await tenantById(tenantId));
     return {
       ...campaign,
       problems: found,
+      warnings,
       audience,
       sender: { from: sender.from, own: sender.own },
       stats: campaign.status === 'sent' || campaign.status === 'sending' ? stats.get(campaign.id)! : null,
@@ -409,6 +430,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
   }
 
   return {
+    listPlays,
     createCampaign,
     getCampaign,
     updateCampaign,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EmailDoc, fillMergeTags, problems, renderEmail, starterDoc, unknownMergeTags, type EmailTheme } from '../src/index.ts';
+import { EmailDoc, fillMergeTags, inboxWarnings, PLAYS, problems, renderEmail, starterDoc, unknownMergeTags, type EmailTheme } from '../src/index.ts';
 
 const theme: EmailTheme = { accent: '#D9481F', onAccent: '#FFFFFF', businessName: 'Linden Studio', address: '4 Linden Row, Bristol BS1 4AA', headingFont: 'cal-sans' };
 
@@ -86,5 +86,50 @@ describe('theme', () => {
     expect(html).toContain('Choose a time');
     expect(html).toContain('href="https://linden.example/book"');
     expect((await renderEmail(doc, { ...theme, bookingUrl: undefined })).html).not.toContain('Choose a time');
+  });
+});
+
+describe('inbox checks', () => {
+  const doc = (blocks: unknown[], preview = 'A few spaces') => EmailDoc.parse({ preview, blocks });
+  it('stays quiet for a plain, well-made email', () => {
+    const good = doc([
+      { id: 'h', type: 'heading', text: 'This week has space for you' },
+      { id: 't', type: 'text', text: 'Hi {{first_name|there}}, a few times have opened up this week. [See them](https://linden.test/book).' },
+      { id: 'b', type: 'button', label: 'Book a time', url: '{{booking_url}}' },
+    ]);
+    expect(inboxWarnings({ subject: 'A few spaces this week, {{first_name|there}}', doc: good })).toEqual([]);
+  });
+
+  it('flags shouting, spam phrases, missing alt text, picture-only emails and odd links', () => {
+    const bad = doc(
+      [
+        { id: 'i', type: 'image', src: 'https://cdn.test/a.png', alt: '' },
+        { id: 'b', type: 'button', label: 'Click here', url: 'http://bit.ly/abc' },
+      ],
+      '',
+    );
+    const found = inboxWarnings({ subject: 'HUGE SALE NOW ON!!', doc: bad });
+    expect(found.join('\n')).toMatch(/capitals/);
+    expect(found.join('\n')).toMatch(/exclamation/);
+    expect(found.join('\n')).toMatch(/preview text/);
+    expect(found.join('\n')).toMatch(/click here/);
+    expect(found.join('\n')).toMatch(/alt text/);
+    expect(found.join('\n')).toMatch(/mostly pictures/);
+    expect(found.join('\n')).toMatch(/Shortened links/);
+    expect(found.join('\n')).toMatch(/https:\/\//);
+  });
+});
+
+describe('plays', () => {
+  it('are valid emails with known merge tags, a preview and nothing for inboxes to dislike', () => {
+    expect(new Set(PLAYS.map((p) => p.id)).size).toBe(PLAYS.length);
+    for (const play of PLAYS) {
+      const doc = EmailDoc.parse(play.doc());
+      expect(unknownMergeTags(`${play.subject} ${JSON.stringify(doc.blocks)}`), play.id).toEqual([]);
+      expect(doc.preview, play.id).not.toBe('');
+      expect(inboxWarnings({ subject: play.subject, doc }), play.id).toEqual([]);
+      expect(doc.blocks.some((b) => b.type === 'slots'), play.id).toBe(play.diary);
+      expect(`${play.subject} ${JSON.stringify(doc)}`, play.id).not.toMatch(/—/);
+    }
   });
 });
