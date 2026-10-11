@@ -9,6 +9,7 @@ import { Braces, CalendarClock, ChevronDown, ChevronUp, Heading, Image, Minus, M
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { previewEmail, type Block, type BlockType, type EmailDoc } from '../api.ts';
 import { Card, Notice, Segmented, cx } from './ui.tsx';
+import { EmailBlocks, ImageBlockSettings } from './image-block.tsx';
 import { useTenant } from './Shell.tsx';
 
 export const control =
@@ -43,40 +44,42 @@ export function BlocksCard({ blocks, onChange }: { blocks: Block[]; onChange: (b
   }
 
   return (
-    <Card className="flex flex-col gap-2 px-3 py-3">
-      <div className="flex items-center justify-between px-2 pt-1 pb-1">
-        <h2 className="display m-0 text-[17px]">Email</h2>
-        <span className="text-xs text-muted">Click a block to change it</span>
-      </div>
-      {blocks.length === 0 && <p className="m-0 px-2 py-4 text-[13px] text-muted">The email is empty. Add a block below.</p>}
-      <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
-        {blocks.map((block, i) => (
-          <BlockRow
-            key={block.id}
-            block={block}
-            open={openBlock === block.id}
-            onOpen={() => setSelected(openBlock === block.id ? null : block.id)}
-            onChange={(b) => onChange(blocks.map((x) => (x.id === b.id ? b : x)))}
-            onRemove={() => onChange(blocks.filter((x) => x.id !== block.id))}
-            onUp={i > 0 ? () => move(i, -1) : undefined}
-            onDown={i < blocks.length - 1 ? () => move(i, 1) : undefined}
-          />
-        ))}
-      </ol>
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-rule px-2 pt-3 pb-1">
-        <span className="mr-1 text-xs text-muted">{openBlock ? 'Add below the open block' : 'Add'}</span>
-        {BLOCKS.map((b) => (
-          <button
-            key={b.type}
-            type="button"
-            onClick={() => insert(b.type)}
-            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-rule-strong bg-paper px-3 text-[13px] text-ink hover:bg-soft"
-          >
-            {b.icon} {b.label}
-          </button>
-        ))}
-      </div>
-    </Card>
+    <EmailBlocks.Provider value={blocks}>
+      <Card className="flex flex-col gap-2 px-3 py-3">
+        <div className="flex items-center justify-between px-2 pt-1 pb-1">
+          <h2 className="display m-0 text-[17px]">Email</h2>
+          <span className="text-xs text-muted">Click a block to change it</span>
+        </div>
+        {blocks.length === 0 && <p className="m-0 px-2 py-4 text-[13px] text-muted">The email is empty. Add a block below.</p>}
+        <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
+          {blocks.map((block, i) => (
+            <BlockRow
+              key={block.id}
+              block={block}
+              open={openBlock === block.id}
+              onOpen={() => setSelected(openBlock === block.id ? null : block.id)}
+              onChange={(b) => onChange(blocks.map((x) => (x.id === b.id ? b : x)))}
+              onRemove={() => onChange(blocks.filter((x) => x.id !== block.id))}
+              onUp={i > 0 ? () => move(i, -1) : undefined}
+              onDown={i < blocks.length - 1 ? () => move(i, 1) : undefined}
+            />
+          ))}
+        </ol>
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-rule px-2 pt-3 pb-1">
+          <span className="mr-1 text-xs text-muted">{openBlock ? 'Add below the open block' : 'Add'}</span>
+          {BLOCKS.map((b) => (
+            <button
+              key={b.type}
+              type="button"
+              onClick={() => insert(b.type)}
+              className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-rule-strong bg-paper px-3 text-[13px] text-ink hover:bg-soft"
+            >
+              {b.icon} {b.label}
+            </button>
+          ))}
+        </div>
+      </Card>
+    </EmailBlocks.Provider>
   );
 }
 
@@ -292,26 +295,7 @@ export function BlockSettings({ block, onChange }: { block: Block; onChange: (b:
         </>
       );
     case 'image':
-      return (
-        <>
-          <Field label="Picture link" hint="Paste the address of a picture that is already online.">
-            <input value={block.src} onChange={(e) => onChange({ ...block, src: e.target.value })} className={control} placeholder="https://…/photo.jpg" />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Description" hint="Read aloud to people who cannot see it.">
-              <input value={block.alt} onChange={(e) => onChange({ ...block, alt: e.target.value })} className={control} />
-            </Field>
-            <Field label="Opens (optional)">
-              <input
-                value={block.url ?? ''}
-                onChange={(e) => onChange({ ...block, url: e.target.value || undefined })}
-                className={control}
-                placeholder="https://"
-              />
-            </Field>
-          </div>
-        </>
-      );
+      return <ImageBlockSettings block={block} onChange={onChange} />;
     case 'spacer':
       return (
         <Segmented

@@ -182,6 +182,22 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `@visx/shape` 4.0.0 (Airbnb) | MIT | Considered for charts and sparklines. Our hand-drawn SVG in `charts.tsx` stays smaller |
 | `@fontsource-variable/jetbrains-mono` 5.3.0 | OFL-1.1 (font), MIT (package) | The mono eyebrow labels |
 
+## Used in stage 8 (pictures and the design canvas)
+
+| Package or project (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `konva` 10.7 | MIT | The design canvas: layers, transforms, export to PNG (D78) |
+| `react-konva` 19.3.0 | MIT | React bindings for the canvas (D78) |
+| `fabric` 7.4.0 | MIT | Considered for the canvas; heavier and less suited to React (D78) |
+| `polotno` 4.15.3 | Commercial | Avoided: a ready-made design editor whose licence needs a paid key (D78) |
+| `tldraw` 5.5.2 | tldraw licence | Avoided: production use needs a licence key (D78) |
+| `@excalidraw/excalidraw` 0.18.1 | MIT | Considered; a whiteboard, not a layout tool for email headers |
+| `use-image` 1.1.4 | MIT | Tried, then replaced by a ten-line hook that also handles cross-origin loading |
+| `openai` 7.32.0 | Apache-2.0 | Considered; we call the images endpoint with plain `fetch` instead (D74) |
+| `@fal-ai/client` 1.10.1 | MIT | A second provider (FLUX) that fits the `ImageGenerator` interface (D74) |
+| `replicate` 1.4.0 | Apache-2.0 | Same, for open image models (D74) |
+| `@aws-sdk/client-s3` 3.x | Apache-2.0 | Picture storage once `ASSETS_BUCKET` is set (D73) |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -201,3 +217,7 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://npmjs.com/package/@uiw/react-heat-map
 - https://npmjs.com/package/@tremor/react
 - https://awesome.cube.dev/tools/visx
+- https://konvajs.org/docs/react/index.html
+- https://polotno.com/docs/pricing
+- https://tldraw.dev/community/license
+- https://platform.openai.com/docs/guides/image-generation

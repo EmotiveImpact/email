@@ -12,6 +12,7 @@ const PAGES = [
   { label: 'Campaigns', to: '/$tenant/campaigns' },
   { label: 'Flows', to: '/$tenant/flows' },
   { label: 'Audience', to: '/$tenant/audience' },
+  { label: 'Images', to: '/$tenant/images' },
   { label: 'Segments', to: '/$tenant/audience', search: { view: 'segments' as const } },
   { label: 'Sending', to: '/$tenant/sending' },
   { label: 'Sending domain', to: '/$tenant/settings/domain' },

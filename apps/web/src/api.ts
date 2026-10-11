@@ -1,5 +1,6 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { EmailDoc } from '@platform/content/blocks';
+import type { DesignDoc } from '@platform/content/design';
 import { endStudio, studioSession, tellHost, type StudioTheme } from './studio.ts';
 import type { Brand } from './theme.ts';
 
@@ -557,3 +558,60 @@ export type Overview = {
 
 export const overviewQuery = (tenant: string, days = 30) =>
   queryOptions({ queryKey: ['overview', tenant, days], queryFn: () => request<Overview>(`/app/tenants/${tenant}/overview?days=${days}`), refetchInterval: 60_000 });
+
+// ---------------------------------------------------------------- pictures
+
+export type { DesignDoc, Layer, LayerType } from '@platform/content/design';
+
+export type AssetKind = 'upload' | 'generated' | 'design';
+export type Asset = {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  /** Where inboxes load it from. */
+  url: string;
+  contentType: string;
+  width: number;
+  height: number;
+  bytes: number;
+  /** Over 1 MB: fine, but a smaller file loads faster on phones. */
+  heavy: boolean;
+  prompt: string | null;
+  style: string | null;
+  provider: string | null;
+  design: DesignDoc | null;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ImageSettings = { provider: string; real: boolean; perDay: number; left: number; styles: { id: string; label: string }[] };
+export type Library = { assets: Asset[]; images: ImageSettings };
+export type ImageShape = 'wide' | 'square' | 'tall';
+export type GenerateInput = { prompt: string; style: string; shape: ImageShape; count: number };
+
+const assetPath = (tenant: string) => `/app/tenants/${tenant}/assets`;
+
+export const libraryQuery = (tenant: string, kind?: AssetKind) =>
+  queryOptions({ queryKey: ['assets', tenant, kind ?? 'all'], queryFn: () => request<Library>(`${assetPath(tenant)}${kind ? `?kind=${kind}` : ''}`) });
+
+function useAssetMutation<I, O>(tenant: string, fn: (input: I) => Promise<O>) {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: fn, onSuccess: () => client.invalidateQueries({ queryKey: ['assets', tenant] }) });
+}
+
+export const useUploadAsset = (tenant: string) =>
+  useAssetMutation(tenant, (file: File) =>
+    request<Asset>(`${assetPath(tenant)}?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, headers: { 'content-type': file.type || 'application/octet-stream' } }),
+  );
+
+export const useGenerateImages = (tenant: string) =>
+  useAssetMutation(tenant, (input: GenerateInput) => request<Asset[]>(`${assetPath(tenant)}/generate`, { method: 'POST', body: JSON.stringify(input) }));
+
+export const useSaveDesign = (tenant: string) =>
+  useAssetMutation(tenant, ({ id, ...body }: { id?: string; name: string; design: DesignDoc; png: string }) =>
+    request<Asset>(id ? `/app/tenants/${tenant}/designs/${id}` : `/app/tenants/${tenant}/designs`, { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) }),
+  );
+
+export const useRenameAsset = (tenant: string) =>
+  useAssetMutation(tenant, ({ id, name }: { id: string; name: string }) => request<Asset>(`${assetPath(tenant)}/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }));
+
+export const useDeleteAsset = (tenant: string) => useAssetMutation(tenant, (id: string) => request<void>(`${assetPath(tenant)}/${id}`, { method: 'DELETE' }));

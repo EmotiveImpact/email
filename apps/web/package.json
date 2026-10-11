@@ -23,8 +23,7 @@
     "lucide-react": "1.55.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-konva": "19.3.0",
-    "use-image": "1.1.4"
+    "react-konva": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

@@ -227,6 +227,8 @@ export function createApi(options: ApiOptions) {
       'content-type': file.contentType,
       'cache-control': 'public, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
+      // The design canvas draws pictures into a <canvas> and saves it; that needs CORS.
+      'access-control-allow-origin': '*',
     });
   });
 

@@ -1,24 +1,6 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import {
-  ArrowRight,
-  ArrowUp,
-  ChevronDown,
-  CodeXml,
-  Globe,
-  House,
-  Megaphone,
-  Plus,
-  Search,
-  Palette,
-  Send,
-  Sparkles,
-  SquarePen,
-  Users,
-  Workflow,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, CodeXml, Globe, House, Image as ImageIcon, Megaphone, Palette, Plus, Search, Send, Sparkles, SquarePen, type LucideIcon, Users, Workflow, X } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { auth, meQuery, tenantsQuery, useCreateCampaign, type Tenant } from '../api.ts';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -36,6 +18,7 @@ const RAIL: Area[][] = [
   ],
   [
     { to: '/$tenant/audience', label: 'Audience', icon: Users },
+    { to: '/$tenant/images', label: 'Images', icon: ImageIcon },
     { to: '/$tenant/sending', label: 'Sending', icon: Send },
   ],
 ];
@@ -390,6 +373,7 @@ const STUDIO_TABS = [
   { to: '/$tenant/campaigns', label: 'Campaigns' },
   { to: '/$tenant/flows', label: 'Flows' },
   { to: '/$tenant/audience', label: 'Audience' },
+  { to: '/$tenant/images', label: 'Images' },
 ] as const;
 
 /**
