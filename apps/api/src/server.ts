@@ -30,7 +30,7 @@ let server: ReturnType<typeof serve> | null = null;
 if (role !== 'worker') {
   const api = createApi({ engine, db, webOrigin, auth, sesTopicArn: process.env.SES_TOPIC_ARN });
   // In production the built web app is served from here too (one origin, D30).
-  const dist = process.env.WEB_DIST ?? fileURLToPath(new URL('../../web/dist', import.meta.url));
+  const dist = process.env.WEB_DIST || fileURLToPath(new URL('../../web/dist', import.meta.url));
   const root = site(api, {
     https: webOrigin.startsWith('https://'),
     dist: process.env.NODE_ENV === 'production' && existsSync(dist) ? dist : undefined,
