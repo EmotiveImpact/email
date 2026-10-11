@@ -12,7 +12,9 @@ COPY packages/content/package.json packages/content/
 COPY packages/db/package.json packages/db/
 COPY packages/engine/package.json packages/engine/
 COPY packages/sdk/package.json packages/sdk/
-RUN pnpm install --frozen-lockfile
+COPY infra/package.json infra/
+# The AWS setup (infra) is not part of the image, so its packages are not installed.
+RUN pnpm install --frozen-lockfile --filter "@platform/api..." --filter "@platform/web..."
 COPY . .
 RUN pnpm --filter @platform/web build
 # Only what the API needs at run time, workspace packages included.
