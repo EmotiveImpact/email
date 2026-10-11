@@ -1,4 +1,5 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { EmailDoc } from '@platform/content/blocks';
 import type { Brand } from './theme.ts';
 
 /** Empty: the app serves /app and /auth from its own origin (Vite proxies them in development). */
@@ -224,5 +225,100 @@ export function useDeleteSegment(tenant: string) {
   return useMutation({
     mutationFn: (id: string) => request<void>(`/app/tenants/${tenant}/segments/${id}`, { method: 'DELETE' }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['segments', tenant] }),
+  });
+}
+
+// ---------------------------------------------------------------- campaigns
+
+export type { Block, BlockType, EmailDoc } from '@platform/content/blocks';
+
+export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'sent';
+export type Audience = { total: number; noConsent: number; suppressed: number; eligible: number };
+export type CampaignStats = { total: number; pending: number; delivered: number; bounced: number; complained: number; opened: number; clicked: number; unsubscribed: number };
+
+export type Campaign = {
+  id: string;
+  name: string;
+  subject: string;
+  segmentId: string | null;
+  content: EmailDoc;
+  status: CampaignStatus;
+  scheduledAt: string | null;
+  sentAt: string | null;
+  recipients: number | null;
+  skippedNoConsent: number | null;
+  skippedSuppressed: number | null;
+  createdAt: string;
+  updatedAt: string;
+  stats: CampaignStats | null;
+};
+
+export type CampaignDetail = Campaign & { problems: string[]; audience: Audience | null };
+export type CampaignPatch = Partial<Pick<Campaign, 'name' | 'subject' | 'segmentId' | 'content'>>;
+
+const campaignPath = (tenant: string, id?: string) => `/app/tenants/${tenant}/campaigns${id ? `/${id}` : ''}`;
+
+export const campaignsQuery = (tenant: string) =>
+  queryOptions({ queryKey: ['campaigns', tenant], queryFn: () => request<Campaign[]>(campaignPath(tenant)) });
+
+export const campaignQuery = (tenant: string, id: string) =>
+  queryOptions({
+    queryKey: ['campaign', tenant, id],
+    queryFn: () => request<CampaignDetail>(campaignPath(tenant, id)),
+    // Results arrive over minutes while a campaign goes out.
+    refetchInterval: (q) => (q.state.data?.status === 'sending' || q.state.data?.status === 'scheduled' ? 10_000 : false),
+  });
+
+export const audienceQuery = (tenant: string, segmentId: string | null) =>
+  queryOptions({
+    queryKey: ['audience', tenant, segmentId],
+    queryFn: () => request<Audience>(`/app/tenants/${tenant}/audience${segmentId ? `?segment=${segmentId}` : ''}`),
+  });
+
+export const previewEmail = (tenant: string, content: EmailDoc) =>
+  request<{ html: string }>(`${campaignPath(tenant)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
+
+export function useCreateCampaign(tenant: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CampaignPatch = {}) => request<Campaign>(campaignPath(tenant), { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns', tenant] }),
+  });
+}
+
+/** Saves, schedules and so on all answer with the fresh campaign, which goes straight into the cache. */
+function useCampaignAction<I>(tenant: string, id: string, call: (input: I) => Promise<CampaignDetail>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: call,
+    onSuccess: (fresh) => {
+      client.setQueryData(['campaign', tenant, id], fresh);
+      void client.invalidateQueries({ queryKey: ['campaigns', tenant] });
+    },
+  });
+}
+
+export const useSaveCampaign = (tenant: string, id: string) =>
+  useCampaignAction(tenant, id, (patch: CampaignPatch) => request<CampaignDetail>(campaignPath(tenant, id), { method: 'PUT', body: JSON.stringify(patch) }));
+
+export const useScheduleCampaign = (tenant: string, id: string) =>
+  useCampaignAction(tenant, id, (at: string | null) =>
+    request<CampaignDetail>(`${campaignPath(tenant, id)}/schedule`, { method: 'POST', body: JSON.stringify(at ? { at } : {}) }),
+  );
+
+export const useUnscheduleCampaign = (tenant: string, id: string) =>
+  useCampaignAction(tenant, id, (_: void) => request<CampaignDetail>(`${campaignPath(tenant, id)}/unschedule`, { method: 'POST', body: '{}' }));
+
+export function useSendTest(tenant: string, id: string) {
+  return useMutation({
+    mutationFn: (to: string) => request<{ to: string }>(`${campaignPath(tenant, id)}/test`, { method: 'POST', body: JSON.stringify({ to }) }),
+  });
+}
+
+export function useDeleteCampaign(tenant: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => request<void>(campaignPath(tenant, id), { method: 'DELETE' }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns', tenant] }),
   });
 }

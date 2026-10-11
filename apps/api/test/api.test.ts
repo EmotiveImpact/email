@@ -250,4 +250,35 @@ describe('/app (the web app)', () => {
     expect((await app('POST', `${base}/segments/preview`, { definition: { conditions: [{ type: 'attribute', key: 'x', op: 'equals' }] } })).status).toBe(422);
     expect((await app('DELETE', `${base}/segments/${segment.id}`)).status).toBe(204);
   });
+
+  it('writes, checks, tests and sends a campaign', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    await ctx.call('PUT', '/v1/contacts', { tenant: 'linden', email: 'ama@example.com', firstName: 'Ama', consent: { marketing: 'granted', source: 'test' } });
+    await ctx.call('PUT', '/v1/contacts', { tenant: 'linden', email: 'kofi@example.com', firstName: 'Kofi' });
+
+    const draft = (await (await app('POST', `${base}/campaigns`, { name: 'Thursday' })).json()) as { id: string; content: { blocks: { type: string }[] } };
+    expect(draft.content.blocks.length).toBeGreaterThan(0);
+    const detail = (await (await app('GET', `${base}/campaigns/${draft.id}`)).json()) as { problems: string[]; audience: { eligible: number } };
+    expect(detail.problems[0]).toBe('Add a subject line.');
+    expect(detail.audience.eligible).toBe(1);
+    expect((await app('POST', `${base}/campaigns/${draft.id}/schedule`, {})).status).toBe(422);
+
+    const content = { preview: 'Space', blocks: [{ id: 'h', type: 'heading', text: 'Hi {{first_name}}' }] };
+    const { html } = (await (await app('POST', `${base}/campaigns/preview`, { content })).json()) as { html: string };
+    expect(html).toContain('Hi Ama');
+    const saved = (await (await app('PUT', `${base}/campaigns/${draft.id}`, { subject: 'This Thursday', content })).json()) as { problems: string[] };
+    expect(saved.problems).toEqual([]);
+
+    expect(await (await app('POST', `${base}/campaigns/${draft.id}/test`, {})).json()).toEqual({ to: 'edem@test.dev' });
+    const sent = (await (await app('POST', `${base}/campaigns/${draft.id}/schedule`, {})).json()) as { status: string };
+    expect(sent.status).toBe('scheduled');
+    await ctx.drain();
+    const list = (await (await app('GET', `${base}/campaigns`)).json()) as { status: string; recipients: number; stats: { total: number } }[];
+    expect(list[0]).toMatchObject({ status: 'sent', recipients: 1, stats: { total: 1 } });
+    const recipients = (ctx.transport as LogTransport).sent.map((m) => m.to).sort();
+    expect(recipients).toEqual(['ama@example.com', 'edem@test.dev']);
+    expect((await app('DELETE', `${base}/campaigns/${draft.id}`)).status).toBe(409);
+  });
 });

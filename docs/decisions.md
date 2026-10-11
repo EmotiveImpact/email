@@ -170,3 +170,47 @@ One entry per real choice: what we picked, what else we considered, and why. New
 ### D33. Staff can add people, and their consent is recorded with who added it
 - **Picked:** "Add person" records consent as `added-by:<staff email>` with the time, only when the tick box is ticked.
 - **Why:** UK GDPR needs proof of consent; this shows who vouched for it.
+
+## Stage 3: campaigns
+
+### D34. Our own block editor, rendered with React Email
+- **Picked:** an email is a short list of typed blocks (heading, text, button, image, divider, space) saved as JSON. The editor edits that list; React Email (MIT) turns it into HTML and plain text. One package, `@platform/content`, holds the blocks, the renderer and merge tags, and the API, the send job and the editor's preview all use it.
+- **Considered:** Maily (React 19, but v2 is still beta and pulls in a large Tiptap tree), Easy Email (React 18 only), EmailBuilder.js (React 18 only, few releases), GrapesJS with MJML (BSD, but a heavy canvas that fights our look), Unlayer (hosted, proprietary editor behind an MIT wrapper).
+- **Why:** appointment businesses send short, single-column emails. Six blocks cover them, every block renders safely in Outlook and Gmail, and owning the format means templates for the marketplace and flows later are plain data we control. The preview is the real send renderer, so what you see is what arrives.
+- **Revisit if:** customers ask for columns, product grids or free-form layouts. Then add an MJML-backed "section" block, or adopt GrapesJS with `grapesjs-mjml` for a pro editor.
+
+### D35. Light formatting instead of a rich-text editor
+- **Picked:** text blocks take `**bold**`, `*italic*`, `[link](https://…)` and blank lines for paragraphs, parsed into React nodes (so everything else is escaped).
+- **Considered:** Tiptap (MIT) for a toolbar editor.
+- **Why:** no HTML from users reaches the email, so there is nothing to sanitise and no broken markup. It is fast to build and fine for owners who write a few lines.
+- **Revisit if:** testing with salon owners shows the syntax trips them up; a small Tiptap toolbar can write the same format.
+
+### D36. Render once, personalise per person
+- **Picked:** a campaign renders once; `{{first_name|there}}` style merge tags are filled per recipient by string replacement, with values escaped for HTML. `{{unsubscribe_url}}` is filled at send time with each person's signed link.
+- **Why:** rendering React once per recipient would cost seconds per thousand; replacement costs microseconds. Unknown tags (likely typos) block sending.
+
+### D37. A campaign becomes one stored message per person
+- **Picked:** sending expands the audience into rows in `messages` (with `campaign_id`), inserted 500 at a time, then queues one send job each. A unique index on campaign and recipient means a retried job never sends twice.
+- **Why:** every email then has its own history, status, events and unsubscribe link, and campaign results are plain counts over messages. The send path is the same one the API uses.
+- **Revisit if:** single campaigns pass about a million recipients; then expand lazily in batches as the queue drains.
+
+### D38. Sends are paced to the SES account's rate
+- **Picked:** each send job starts at `index / SES_SEND_RATE` seconds after the campaign starts (default 10 a second, set per environment).
+- **Why:** SES throttles above the account's rate, and a smooth flow protects the shared sending reputation. pg-boss's `startAfter` does the waiting, so no extra scheduler.
+- **Revisit if:** many tenants send at once; pacing should then be shared across campaigns (a token bucket per SES account).
+
+### D39. Consent and suppression are checked twice
+- **Picked:** the audience is filtered by consent and suppressions when the campaign expands, and each message is checked again just before it goes.
+- **Why:** paced campaigns take a while; someone who unsubscribes from an earlier email in that window is held back, shown as "Not sent: they unsubscribed".
+
+### D40. A campaign cannot go without a postal address
+- **Picked:** "Review and send" blocks until the business adds a postal address in Appearance; the footer always has the address and an unsubscribe link, and the header carries one-click unsubscribe.
+- **Why:** UK PECR and US CAN-SPAM expect the sender to be identifiable; Gmail and Yahoo require one-click unsubscribe for bulk senders. Making it impossible to forget beats a warning.
+
+### D41. Drafts save themselves; only drafts can change
+- **Picked:** the editor saves a moment after each change. Scheduled campaigns must be unscheduled to edit, and the send job checks the status again, so an unscheduled campaign's queued job does nothing.
+- **Why:** nobody loses work, and nothing changes underneath a send in progress.
+
+### D42. Headings load Cal Sans where inboxes allow
+- **Picked:** emails declare Cal Sans from Google Fonts across a weight range and ask for bold headings.
+- **Why:** Apple Mail and iOS show Cal Sans as designed; Gmail and Outlook ignore web fonts and fall back to a bold system face instead of a thin one.

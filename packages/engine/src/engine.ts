@@ -21,6 +21,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from '@platform/db';
 import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
 import { createAudience } from './audience.ts';
+import { createCampaigns } from './campaigns.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
 import { parseSesEvent, type SesEvent } from './ses-events.ts';
 import { PermanentSendError, PlatformError, type Transport } from './types.ts';
@@ -32,6 +33,8 @@ export type EngineConfig = {
   signingSecret: string;
   /** Used when a tenant has no from address of its own. */
   defaultFrom: string;
+  /** Emails per second the SES account allows; campaigns are paced to stay under it. Default 10. */
+  sendRate?: number;
 };
 
 type Tenant = typeof tenants.$inferSelect;
@@ -105,6 +108,7 @@ export const UpsertTenantInput = z.object({
       rail: z.enum(['light', 'pigment']).optional(),
       headingFont: z.enum(['cal-sans', 'geist', 'serif']).optional(),
       logoUrl: z.url().optional(),
+      address: z.string().max(300).optional(),
     })
     .optional(),
 });
@@ -185,6 +189,7 @@ export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<
 export function createEngine(deps: { db: Db; transport: Transport; queue: Queue; config: EngineConfig; fetch?: typeof fetch }) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
+  const campaignsApi = createCampaigns({ db, queue, defaultFrom: config.defaultFrom, sendRate: config.sendRate ?? 10 });
 
   // ---------------------------------------------------------------- accounts, apps and keys
 
@@ -421,12 +426,23 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
     if (!claimed) return; // already sent, or suppressed meanwhile
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, claimed.tenantId));
 
-    const headers: Record<string, string> = { 'X-Platform-Message-Id': claimed.id };
+    // Campaigns are paced over time, so someone may have unsubscribed since this was queued.
     if (claimed.stream === 'marketing') {
-      const url = `${config.publicUrl}/u/${unsubscribeToken(claimed.id)}`;
-      headers['List-Unsubscribe'] = `<${url}>`;
+      const blocked = await blockedReason(claimed.tenantId, claimed.to, 'marketing');
+      if (blocked) {
+        await db.update(messages).set({ status: 'suppressed', error: blocked, updatedAt: new Date() }).where(eq(messages.id, claimed.id));
+        return;
+      }
+    }
+
+    const headers: Record<string, string> = { 'X-Platform-Message-Id': claimed.id };
+    let unsubscribeUrl = '#';
+    if (claimed.stream === 'marketing') {
+      unsubscribeUrl = `${config.publicUrl}/u/${unsubscribeToken(claimed.id)}`;
+      headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`;
       headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
     }
+    const fillLink = (body: string | null) => body?.replaceAll('{{unsubscribe_url}}', unsubscribeUrl) ?? null;
 
     try {
       const { providerMessageId } = await transport.send({
@@ -435,8 +451,8 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
         to: claimed.to,
         replyTo: claimed.replyTo,
         subject: claimed.subject,
-        html: claimed.html,
-        text: claimed.text,
+        html: fillLink(claimed.html),
+        text: fillLink(claimed.text),
         headers,
         sesTenant: tenant?.sesTenant,
         tags: { ...claimed.tags, stream: claimed.stream },
@@ -513,6 +529,11 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
     const [message] = await db.select().from(messages).where(eq(messages.id, messageId));
     if (!message) throw new PlatformError('invalid_token', 'This unsubscribe link is not valid.', 404);
     await suppress(message.tenantId, message.to, 'unsubscribe', 'marketing');
+    const [already] = await db
+      .select({ id: messageEvents.id })
+      .from(messageEvents)
+      .where(and(eq(messageEvents.messageId, message.id), eq(messageEvents.type, 'unsubscribe')));
+    if (!already) await db.insert(messageEvents).values({ id: newId('mev'), messageId: message.id, type: 'unsubscribe', occurredAt: new Date() });
     const [contact] = await db
       .select({ id: contacts.id, consent: contacts.marketingConsent })
       .from(contacts)
@@ -650,10 +671,12 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
   async function runJob<N extends JobName>(name: N, data: Jobs[N]) {
     if (name === 'send-message') return processSend((data as Jobs['send-message']).messageId);
     if (name === 'deliver-webhook') return processWebhook((data as Jobs['deliver-webhook']).deliveryId);
+    if (name === 'send-campaign') return campaignsApi.processCampaign((data as Jobs['send-campaign']).campaignId);
   }
 
   return {
     ...createAudience(db),
+    ...campaignsApi,
     createAccountWithApp,
     createApp,
     createApiKey,

@@ -3,7 +3,7 @@
  * sixty salon clients with booking history, a month of sent email, and a person who can sign in.
  * Run it on an empty database (`pnpm db:migrate` first).
  */
-import { members, messages, newId } from '@platform/db';
+import { campaigns, eq, members, messageEvents, messages, newId } from '@platform/db';
 import { boot } from './runtime.ts';
 
 const { db, engine, queue, pool, auth } = await boot();
@@ -14,7 +14,7 @@ const caleane = (await engine.createApp(accountId, 'Caleane')).id;
 const linden = await engine.upsertTenant(saleane, 'linden', {
   name: 'Linden Studio',
   fromEmail: 'news@linden.example',
-  brand: { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans' },
+  brand: { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans', address: 'Linden Studio, 4 Linden Row, Leeds LS1 4AB' },
 });
 const harbour = await engine.upsertTenant(caleane, 'harbour-films', { name: 'Harbour Films', fromEmail: 'hello@harbourfilms.example', brand: { accent: '#4B4FD8', rail: 'light' } });
 
@@ -94,6 +94,61 @@ for (let ago = 30; ago >= 1; ago--) {
 }
 await db.insert(messages).values(history);
 await engine.sendEmail(app, { tenant: 'linden', to: 'ama.mensah0@example.com', subject: 'Your facial is on Thursday at 10:00', text: 'See you then.' });
+
+// ---------------------------------------------------------------- campaigns: one sent, one scheduled, one draft
+
+const book = 'https://linden.example/book';
+const autumn = await engine.createCampaign(linden.id, {
+  name: 'Autumn treatments',
+  subject: 'Autumn treatments are here, {{first_name|friend}}',
+  content: {
+    preview: 'Warming facials and a new hot-stone massage.',
+    blocks: [
+      { id: 'a1', type: 'heading', text: 'Autumn treatments are here' },
+      { id: 'a2', type: 'text', text: 'Hi {{first_name|there}},\n\nAs the evenings draw in we have added a **warming enzyme facial** and a *hot-stone back massage* to the menu. Both are 60 minutes and both come with a cup of our spiced tea.' },
+      { id: 'a3', type: 'button', label: 'Book an autumn treatment', url: book },
+      { id: 'a4', type: 'divider' },
+      { id: 'a5', type: 'text', text: 'Already booked? We will see you soon.\n\nMaya, Jo and Priya' },
+    ],
+  },
+});
+await engine.scheduleCampaign(linden.id, autumn.id);
+await engine.processCampaign(autumn.id);
+// Pretend it went nine days ago and people have read it since.
+const nineDaysAgo = new Date(Date.now() - 9 * 86_400_000);
+const sent = await db.select({ id: messages.id }).from(messages).where(eq(messages.campaignId, autumn.id));
+const events: (typeof messageEvents.$inferInsert)[] = [];
+for (const [i, m] of sent.entries()) {
+  const bounced = i === 3;
+  await db.update(messages).set({ status: bounced ? 'bounced' : 'delivered', sentAt: nineDaysAgo, createdAt: nineDaysAgo }).where(eq(messages.id, m.id));
+  if (bounced) continue;
+  const later = (h: number) => new Date(nineDaysAgo.getTime() + h * 3_600_000);
+  if (random() < 0.52) events.push({ id: newId('mev'), messageId: m.id, type: 'open', occurredAt: later(1 + random() * 40) });
+  if (random() < 0.11) events.push({ id: newId('mev'), messageId: m.id, type: 'click', occurredAt: later(2 + random() * 40) });
+}
+if (sent[5]) events.push({ id: newId('mev'), messageId: sent[5].id, type: 'unsubscribe', occurredAt: new Date(nineDaysAgo.getTime() + 7_200_000) });
+if (events.length) await db.insert(messageEvents).values(events);
+await db.update(campaigns).set({ sentAt: nineDaysAgo, scheduledAt: nineDaysAgo, createdAt: nineDaysAgo, updatedAt: nineDaysAgo }).where(eq(campaigns.id, autumn.id));
+
+const due = (await engine.listSegments(linden.id)).find((s) => s.name === 'Due for a visit');
+const halfTerm = await engine.createCampaign(linden.id, {
+  name: 'Half-term pamper week',
+  subject: 'A quiet hour for you this half-term',
+  segmentId: due?.id ?? null,
+  content: {
+    preview: 'Weekday mornings are open while the kids are off.',
+    blocks: [
+      { id: 'h1', type: 'heading', text: 'Half-term, with an hour to yourself' },
+      { id: 'h2', type: 'text', text: 'Hi {{first_name|there}},\n\nIt has been a little while since your last visit. Weekday mornings are open over half-term if you fancy a reset.' },
+      { id: 'h3', type: 'button', label: 'Pick a morning', url: book },
+    ],
+  },
+});
+await engine.scheduleCampaign(linden.id, halfTerm.id, new Date(Date.now() + 3 * 86_400_000));
+
+const draft = await engine.createCampaign(linden.id, { name: 'Thursday has space', subject: '{{first_name|Hi}}, Thursday has space' });
+const content = draft.content as { blocks: { type: string; url?: string }[] };
+await engine.updateCampaign(linden.id, draft.id, { content: { ...content, blocks: content.blocks.map((b) => (b.type === 'button' ? { ...b, url: book } : b)) } });
 
 // ---------------------------------------------------------------- someone to sign in as
 

@@ -14,7 +14,12 @@ export function Appearance() {
   const [draft, setDraft] = useState<Brand>(saved);
   const save = useSaveBrand(tenant.id);
   const accent = shadesFor(draft.accent).accent;
-  const dirty = accent !== shadesFor(saved.accent).accent || draft.rail !== saved.rail || draft.headingFont !== saved.headingFont;
+  const dirty =
+    accent !== shadesFor(saved.accent).accent ||
+    draft.rail !== saved.rail ||
+    draft.headingFont !== saved.headingFont ||
+    (draft.logoUrl ?? '') !== (saved.logoUrl ?? '') ||
+    (draft.address ?? '') !== (saved.address ?? '');
 
   // The whole app shows the draft while this page is open; leaving the page drops it.
   useEffect(() => setPreview(draft), [draft, setPreview]);
@@ -32,10 +37,10 @@ export function Appearance() {
         subtitle="The standard look suits most businesses. Change three things to make it yours; everything else follows."
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => update(DEFAULT_BRAND)} disabled={save.isPending}>
+            <Button variant="secondary" onClick={() => update({ ...DEFAULT_BRAND })} disabled={save.isPending}>
               <RotateCcw size={14} /> Standard look
             </Button>
-            <Button onClick={() => save.mutate({ accent, rail: draft.rail, headingFont: draft.headingFont })} disabled={!dirty || save.isPending}>
+            <Button onClick={() => save.mutate({ accent, rail: draft.rail, headingFont: draft.headingFont, logoUrl: draft.logoUrl?.trim() ?? '', address: draft.address?.trim() ?? '' })} disabled={!dirty || save.isPending}>
               {save.isSuccess && !dirty ? (
                 <>
                   <Check size={14} /> Saved
@@ -108,8 +113,27 @@ export function Appearance() {
         </Field>
       </Card>
 
+      <Card className="flex flex-col gap-6 px-6 py-6">
+        <Field label="Logo in emails" hint="A link to your logo (PNG or JPG, already online). Without one, emails show your business name.">
+          <input
+            value={draft.logoUrl ?? ''}
+            onChange={(e) => update({ logoUrl: e.target.value })}
+            placeholder="https://…/logo.png"
+            className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
+          />
+        </Field>
+        <Field label="Postal address" hint="Shown at the foot of newsletters. UK and US rules expect one in marketing email.">
+          <input
+            value={draft.address ?? ''}
+            onChange={(e) => update({ address: e.target.value })}
+            placeholder="4 Linden Row, Leeds LS1 4AB"
+            className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
+          />
+        </Field>
+      </Card>
+
       <p className="m-0 text-xs leading-relaxed text-muted">
-        You are seeing the change across the app now. It is only kept when you save.
+        You are seeing the change across the app now, and in your emails' accent and heading font. It is only kept when you save.
       </p>
     </>
   );
