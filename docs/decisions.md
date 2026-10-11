@@ -403,3 +403,45 @@ Mocks for every key screen, the design components and four palettes are on one c
 
 ### D80. The colours stay as they were for now
 - **Picked:** Edem saw Midnight to Lilac in the app and asked to go back to the earlier look (Ember accent, dark rail with the warm glow) and keep building. Colour stays an open question for Edem; it is still one change in `theme.ts` and `styles.css` (D72).
+
+## Stage 9: the standalone app, onboarding and billing
+
+### D81. A business either pays us, or its app does
+- **Picked:** each account has one "Direct" app (`apps.direct`). Businesses under it signed up with us and pay for a plan. Businesses under any other app (a salon inside Saleane) are paid for by that app, so they have no plan or limits here and cannot open Billing in the embedded studio.
+- **Why:** the platform direction (section 5): Saleane resells email to its salons; a salon that signs up on its own pays us.
+
+### D82. Plans are priced by people who said yes, with an email allowance
+- **Picked:** a plan covers a number of people with marketing consent and twelve marketing emails per person a month (about three a week). Booking confirmations, reminders and test sends are never counted. Paid plans count from the Stripe billing date; free ones by calendar month.
+- **Considered:** per-email pricing like Brevo; counting every contact like Mailchimp.
+- **Why:** small businesses think in clients, not emails, and counting only people who said yes means clients kept for the diary cost nothing.
+
+### D83. Limits stop sends before they start, and say what to do
+- **Picked:** a campaign that would go over the allowance cannot be scheduled, with a sentence naming the numbers. It is checked again when it goes; if the plan has run out by then, it returns to draft with the reason shown on the campaign. Flows send up to what is left and pick up the rest when the month resets. Home shows a notice from 80% used. Going over the plan's people pauses marketing until the plan changes.
+- **Why:** nobody should find out from a client that an email never went.
+
+### D84. Prices are placeholders until Edem sets them
+- **Picked:** Free (250 people, 2,500 emails), Starter £15 (1,000 / 12,000), Growth £29 (2,500 / 30,000), Studio £49 (5,000 / 60,000), Scale £79 (10,000 / 120,000), all in `PLANS` in `billing.ts` and created in Stripe by the setup script.
+- **Reference (11 Oct 2026):** MailerLite's free plan is 250 subscribers and 2,500 emails, paid from $12; Mailchimp Essentials from $13 with 10x sends, Standard from $20 with 12x. Per-tier prices at 1,000 to 10,000 contacts were not readable from the pricing pages and need checking by hand. Klaviyo's page showed no prices to the fetcher.
+- **Why:** the shape is what matters for building; the numbers are a business decision.
+
+### D85. Stripe over plain fetch, with a sample provider locally
+- **Picked:** Checkout for a first subscription, the Billing Portal for changes, cancelling and invoices. Prices live in Stripe under lookup keys (`plan_growth_monthly`), created once by `pnpm --filter @platform/api stripe:setup`. Webhooks at `/billing/stripe` are checked against the signature (HMAC, five minutes) and then the subscription is read back from Stripe, so events arriving out of order cannot leave a stale plan. API version pinned to `2026-09-30.endive`. Without Stripe keys, a sample provider switches plans for free in development; in production without keys, plans cannot change.
+- **Considered:** the `stripe` SDK (MIT), which is fine but large for four calls; Lago (AGPL, study only) and OpenMeter (Apache-2.0) for metering, more than we need while usage is two counts.
+- **Why:** the same pattern as image generation (D74): the whole flow works and is tested with no keys.
+
+### D86. Sign-up is four short steps, and only the first is required
+- **Picked:** business (name, booking page, postal address, send-from, where they take bookings), clients, past visits, plan. The business is created at step one; the rest can be skipped and resumed (the step is in the URL). Booking links without https:// are fixed for people. Time zone comes from the browser.
+- **Why:** an owner should reach their Home in a minute, and the address and booking link are needed before any marketing email can go (D40).
+
+### D87. Imports never put words in a client's mouth
+- **Picked:** CSV parsed in the browser (`papaparse`, MIT), sent in batches of 500. Columns are guessed from common booking-system headers and shown for checking with the first row. UK dates are read day first. Consent is only recorded when the owner confirms people agreed, or from an opt-in column, and is stored as `import:owner-confirmed`. An import never overrides someone who said no or unsubscribed, and never overwrites a name the business already has. Each imported visit gets an id from email, date and service, so importing the same file twice changes nothing.
+- **Why:** consent is the thing that keeps sending healthy (and legal under PECR); owners also re-import the same export more than once.
+
+### D88. Home shows the way to a first booking from email
+- **Picked:** a "Get set up" card with six steps (details, clients, visits, own domain, a flow on, first email), each linking to the place to do it, hideable per business.
+- **Why:** it replaces a tour; the steps are the same ones that make the product earn.
+
+### D89. Password reset by email
+- **Picked:** Better Auth's reset flow: a link that lasts an hour, other devices signed out after the change. The platform's own emails go straight through the transport, not through any business.
+- **Why:** a standalone app needs it on day one.
+

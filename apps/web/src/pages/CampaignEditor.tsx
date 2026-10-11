@@ -110,6 +110,15 @@ function Editor({ campaign }: { campaign: CampaignDetail }) {
         </div>
       </div>
 
+      {campaign.problem && campaign.status === 'draft' && (
+        <Notice tone="bad">
+          {campaign.problem}{' '}
+          <Link to="/$tenant/billing" params={{ tenant: tenant.id }} className="font-semibold text-inherit underline">
+            See plans
+          </Link>
+        </Notice>
+      )}
+
       <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <Card className="flex flex-col gap-4 px-5 py-5">

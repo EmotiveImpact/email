@@ -5,6 +5,7 @@ import { useState, type CSSProperties } from 'react';
 import { activityQuery, meQuery, overviewQuery, type Activity, type Opportunity, type Overview } from '../api.ts';
 import { AreaChart, Sparkline, soften } from '../components/charts.tsx';
 import { money } from '../components/email-editor.tsx';
+import { GettingStarted, PlanNotice } from '../components/getting-started.tsx';
 import { useTenant } from '../components/Shell.tsx';
 import { Card, CardTitle, Segmented, cx } from '../components/ui.tsx';
 
@@ -66,6 +67,8 @@ export function Home() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-12">
+        <PlanNotice tenant={tenant.id} />
+        <GettingStarted tenant={tenant.id} />
         <MoneyCard overview={overview} className="lg:col-span-7" />
         <WeekAhead overview={overview} className="lg:col-span-5" />
 

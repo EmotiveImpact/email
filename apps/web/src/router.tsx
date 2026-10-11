@@ -8,6 +8,7 @@ import {
   campaignsQuery,
   flowQuery,
   flowsQuery,
+  billingQuery,
   libraryQuery,
   meQuery,
   messagesQuery,
@@ -29,7 +30,9 @@ import { Home } from './pages/Home.tsx';
 import { Images } from './pages/Images.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
-import { Setup, SignIn } from './pages/SignIn.tsx';
+import { Billing } from './pages/Billing.tsx';
+import { Onboarding, type SetupSearch } from './pages/Onboarding.tsx';
+import { ResetPassword, SignIn } from './pages/SignIn.tsx';
 import { FlowOverview, FlowPage, Flows } from './pages/Flows.tsx';
 
 /*
@@ -54,14 +57,24 @@ async function requireMe(queryClient: QueryClient) {
   }
 }
 
-const signIn = createRoute({ getParentRoute: () => root, path: 'sign-in', component: SignIn });
+const signIn = createRoute({
+  getParentRoute: () => root,
+  path: 'sign-in',
+  validateSearch: (search: Record<string, unknown>): { reset?: 1 } => (search.reset ? { reset: 1 } : {}),
+  component: SignIn,
+});
+const resetPassword = createRoute({ getParentRoute: () => root, path: 'reset-password', component: ResetPassword });
 const embed = createRoute({ getParentRoute: () => root, path: 'embed', component: Embed });
 
 const setup = createRoute({
   getParentRoute: () => root,
   path: 'setup',
+  validateSearch: (search: Record<string, unknown>): SetupSearch => ({
+    business: typeof search.business === 'string' && search.business ? search.business : undefined,
+    step: search.step === 'clients' || search.step === 'visits' || search.step === 'plan' ? search.step : undefined,
+  }),
   loader: ({ context }) => requireMe(context.queryClient),
-  component: Setup,
+  component: Onboarding,
 });
 
 const index = createRoute({
@@ -147,6 +160,7 @@ const audience = createRoute({
     segment: typeof search.segment === 'string' && search.segment ? search.segment : undefined,
     page: typeof search.page === 'number' && search.page > 0 ? search.page : undefined,
     contact: typeof search.contact === 'string' && search.contact ? search.contact : undefined,
+    import: search.import === 'clients' || search.import === 'visits' ? search.import : undefined,
   }),
   loader: ({ context, params }) => context.queryClient.ensureQueryData(segmentsQuery(params.tenant)),
   component: Audience,
@@ -165,14 +179,21 @@ const domain = createRoute({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(sendingQuery(params.tenant)),
   component: Domain,
 });
+const billing = createRoute({
+  getParentRoute: () => tenant,
+  path: 'billing',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(billingQuery(params.tenant)),
+  component: Billing,
+});
 const appearance = createRoute({ getParentRoute: () => tenant, path: 'settings/appearance', component: Appearance });
 
 const routeTree = root.addChildren([
   index,
   signIn,
+  resetPassword,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, images, domain, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, images, domain, developers, appearance, billing]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

@@ -113,7 +113,66 @@ export const auth = {
   signOut: () => request('/auth/sign-out', { method: 'POST', body: '{}' }),
   createAccount: (name: string) => request<{ id: string }>('/app/accounts', { method: 'POST', body: JSON.stringify({ name }) }),
   switchAccount: (id: string) => request('/app/accounts/' + encodeURIComponent(id) + '/switch', { method: 'POST' }),
-  createTenant: (name: string, fromEmail?: string) => request<Tenant>('/app/tenants', { method: 'POST', body: JSON.stringify({ name, fromEmail }) }),
+  createTenant: (input: NewBusiness) => request<Tenant>('/app/tenants', { method: 'POST', body: JSON.stringify(input) }),
+  requestReset: (email: string) =>
+    request('/auth/request-password-reset', { method: 'POST', body: JSON.stringify({ email, redirectTo: `${window.location.origin}/reset-password` }) }),
+  resetPassword: (token: string, newPassword: string) => request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) }),
+};
+
+export type NewBusiness = { name: string; fromEmail?: string; bookingUrl?: string; address?: string; timezone?: string };
+
+// ---------------------------------------------------------------- getting started, imports and billing
+
+export type Step = { id: 'details' | 'clients' | 'diary' | 'domain' | 'flow' | 'email'; title: string; done: boolean };
+
+export const gettingStartedQuery = (tenant: string) =>
+  queryOptions({
+    queryKey: ['getting-started', tenant],
+    queryFn: () => request<{ steps: Step[]; done: number; total: number }>(`/app/tenants/${encodeURIComponent(tenant)}/getting-started`),
+  });
+
+export type ClientRow = { email: string; firstName?: string; lastName?: string; phone?: string };
+export type VisitRow = { email: string; firstName?: string; lastName?: string; date: string; service?: string; staff?: string; price?: string };
+export type ImportResult = { added?: number; updated?: number; consented?: number; saved?: number; skipped: { row: number; reason: string }[] };
+
+export const importRows = (tenant: string, kind: 'clients' | 'visits', body: { clients: ClientRow[]; consent: 'granted' | 'unknown' } | { visits: VisitRow[] }) =>
+  request<ImportResult>(`/app/tenants/${encodeURIComponent(tenant)}/import/${kind}`, { method: 'POST', body: JSON.stringify(body) });
+
+export type PlanId = 'free' | 'starter' | 'growth' | 'studio' | 'scale';
+export type Plan = { id: PlanId; name: string; price: number; contacts: number; emails: number; pitch: string };
+export type Billing = {
+  billed: 'business' | 'app';
+  payments: 'live' | 'sample' | 'off';
+  plan: PlanId;
+  status: string;
+  periodStart: string;
+  periodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  usage: { contacts: number; emails: number };
+  plans: Plan[];
+};
+
+export const billingQuery = (tenant: string) =>
+  queryOptions({
+    queryKey: ['billing', tenant],
+    queryFn: () => request<Billing>(`/app/tenants/${encodeURIComponent(tenant)}/billing`),
+  });
+
+export function useChoosePlan(tenant: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (plan: PlanId) =>
+      request<{ url: string | null }>(`/app/tenants/${encodeURIComponent(tenant)}/billing/plan`, { method: 'POST', body: JSON.stringify({ plan }) }),
+    onSuccess: ({ url }) => {
+      if (url) window.location.assign(url);
+      else void client.invalidateQueries({ queryKey: ['billing', tenant] });
+    },
+  });
+}
+
+export const openBillingPortal = async (tenant: string) => {
+  const { url } = await request<{ url: string }>(`/app/tenants/${encodeURIComponent(tenant)}/billing/portal`, { method: 'POST' });
+  window.location.assign(url);
 };
 
 // ---------------------------------------------------------------- businesses and sending
@@ -304,6 +363,8 @@ export type Campaign = {
   recipients: number | null;
   skippedNoConsent: number | null;
   skippedSuppressed: number | null;
+  /** Why a scheduled send went back to draft (over the plan, say). */
+  problem: string | null;
   createdAt: string;
   updatedAt: string;
   stats: CampaignStats | null;

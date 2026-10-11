@@ -198,6 +198,18 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `replicate` 1.4.0 | Apache-2.0 | Same, for open image models (D74) |
 | `@aws-sdk/client-s3` 3.x | Apache-2.0 | Picture storage once `ASSETS_BUCKET` is set (D73) |
 
+## Used in stage 9 (onboarding and billing)
+
+| Package or project (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| `papaparse` 5.7.0 | MIT | Reading CSV exports in the browser (D87) |
+| `react-dropzone` 20.1.3 | MIT | Considered for the drop area; native drag and drop is a few lines |
+| `stripe` 23.0.0 | MIT | Considered; four REST calls with `fetch` keep it out (D85) |
+| `@stripe/stripe-js` 10.0.0 | MIT | Not needed: Checkout and the portal are Stripe-hosted pages |
+| Lago | AGPL-3.0 | Studied only: usage billing engine, more than two counters need (D85) |
+| OpenMeter | Apache-2.0 | Considered for metering; not needed yet (D85) |
+| Better Auth password reset | MIT | Already our sign-in; its reset flow is used as is (D89) |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -221,3 +233,12 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://polotno.com/docs/pricing
 - https://tldraw.dev/community/license
 - https://platform.openai.com/docs/guides/image-generation
+- https://www.mailerlite.com/pricing
+- https://www.brevo.com/pricing/
+- https://mailchimp.com/en-gb/pricing/marketing/
+- https://docs.stripe.com/api/versioning
+- https://docs.stripe.com/webhooks/signature
+- https://docs.stripe.com/billing/subscriptions/webhooks
+- https://www.getlago.com/blog/open-source-licensing-and-why-lago-chose-agplv3
+- https://pkg.go.dev/github.com/openmeterio/openmeter@v1.0.0-beta.149
+- https://www.better-auth.com/docs/authentication/email-password
