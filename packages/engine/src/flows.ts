@@ -453,12 +453,32 @@ export function createFlows({ db, queue, senderFor, sendRate, diary }: FlowDeps)
     return rows.map((r) => ({ ...describe(tenant, r), stats: stats.get(r.id)!, waiting: due.get(r.id) ?? 0 }));
   }
 
+  /** Who the flow would email next, and for fill-slots the day and times it would offer. */
+  async function nextUp(tenant: Tenant, flow: Flow, now: Date) {
+    const [rhythms, people] = await Promise.all([diary.rhythms(tenant.id, now), reachable(tenant.id, now)]);
+    const { list, fill } = await recipients(tenant, flow, rhythms, people, now);
+    const s = settingsOf(flow);
+    const times = fill ? slotLinks(await diary.slotsOn(tenant.id, fill.day, tenant.timezone), tenant.timezone, tenant.brand.bookingUrl, { withDay: false }, 8) : [];
+    return {
+      total: list.length,
+      people: list.slice(0, 5).map((p) => ({
+        firstName: p.firstName,
+        lastName: p.lastName,
+        email: p.email,
+        lastService: p.rhythm.lastService,
+        lastVisit: p.rhythm.lastVisit,
+        dueAt: dueAt(p.rhythm, s.firstGapDays),
+      })),
+      fill: fill ? { day: fill.day, open: fill.open, times: times.map((t) => t.label) } : null,
+    };
+  }
+
   async function flowDetail(tenantId: string, id: string, now = new Date()) {
     const tenant = await tenantById(tenantId);
     const flow = await getFlow(tenantId, id);
-    const [stats, due, recent] = await Promise.all([
+    const [stats, next, recent] = await Promise.all([
       flowStats(tenantId, [id]),
-      waiting(tenant, [flow], now),
+      nextUp(tenant, flow, now),
       db
         .select({ email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName, reason: flowSends.reason, at: flowSends.createdAt, status: messages.status })
         .from(flowSends)
@@ -469,7 +489,7 @@ export function createFlows({ db, queue, senderFor, sendRate, diary }: FlowDeps)
         .limit(20),
     ]);
     const sender = await senderFor(tenant);
-    return { ...describe(tenant, flow), stats: stats.get(id)!, waiting: due.get(id) ?? 0, recent, sender: { from: sender.from, own: sender.own } };
+    return { ...describe(tenant, flow), stats: stats.get(id)!, waiting: next.total, next, recent, sender: { from: sender.from, own: sender.own } };
   }
 
   async function updateFlow(tenantId: string, id: string, patch: { subject?: string; content?: unknown; settings?: Record<string, unknown>; live?: boolean }) {

@@ -459,7 +459,15 @@ export type Flow = {
   updatedAt: string;
 };
 
+export type FlowNext = {
+  total: number;
+  people: { firstName: string | null; lastName: string | null; email: string; lastService: string | null; lastVisit: string | null; dueAt: string | null }[];
+  /** Fill quiet days only: the day it would offer and its free times. */
+  fill: { day: string; open: number; times: string[] } | null;
+};
+
 export type FlowDetail = Flow & {
+  next: FlowNext;
   recent: { email: string; firstName: string | null; lastName: string | null; reason: string; at: string; status: MessageStatus | null }[];
   sender: { from: string; own: boolean };
 };

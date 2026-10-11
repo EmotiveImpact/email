@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, ApiError, campaignQuery, campaignsQuery, flowQuery, flowsQuery, meQuery, messagesQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
+import { activityQuery, ApiError, campaignQuery, campaignsQuery, flowQuery, flowsQuery, meQuery, messagesQuery, overviewQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
@@ -15,7 +15,7 @@ import { Home } from './pages/Home.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
 import { Setup, SignIn } from './pages/SignIn.tsx';
-import { FlowPage, Flows } from './pages/Flows.tsx';
+import { FlowOverview, FlowPage, Flows } from './pages/Flows.tsx';
 
 /*
  * Routes are declared in code rather than generated from files: there are few of them, and it
@@ -75,7 +75,15 @@ const tenant = createRoute({
 const withActivity = ({ context, params }: { context: { queryClient: QueryClient }; params: { tenant: string } }) =>
   context.queryClient.ensureQueryData(activityQuery(params.tenant));
 
-const home = createRoute({ getParentRoute: () => tenant, path: '/', loader: withActivity, component: Home });
+const home = createRoute({
+  getParentRoute: () => tenant,
+  path: '/',
+  loader: async (args) => {
+    void args.context.queryClient.prefetchQuery(overviewQuery(args.params.tenant));
+    return withActivity(args);
+  },
+  component: Home,
+});
 const sending = createRoute({
   getParentRoute: () => tenant,
   path: 'sending',
@@ -104,6 +112,13 @@ const flows = createRoute({
 const flow = createRoute({
   getParentRoute: () => tenant,
   path: 'flows/$flow',
+  loader: ({ context, params }) =>
+    Promise.all([context.queryClient.ensureQueryData(flowsQuery(params.tenant)), context.queryClient.ensureQueryData(flowQuery(params.tenant, params.flow))]),
+  component: FlowOverview,
+});
+const flowEmail = createRoute({
+  getParentRoute: () => tenant,
+  path: 'flows/$flow/email',
   loader: ({ context, params }) => context.queryClient.ensureQueryData(flowQuery(params.tenant, params.flow)),
   component: FlowPage,
 });
@@ -136,7 +151,7 @@ const routeTree = root.addChildren([
   signIn,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, audience, segment, domain, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, flowEmail, audience, segment, domain, developers, appearance]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {
