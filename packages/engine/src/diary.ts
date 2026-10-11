@@ -69,6 +69,23 @@ export type Rhythm = {
 /** How long after an email a booking still counts as following it. */
 export const ATTRIBUTION_DAYS = 5;
 
+/**
+ * The last marketing email a client had in the five days before booking. Joined as `lt` onto
+ * appointments `ap` and their contact `c`.
+ */
+const lastTouch = sql`
+  cross join lateral (
+    select m.campaign_id, m.flow_id from messages m
+    where m.tenant_id = ap.tenant_id and m.to_email = c.email and m.stream = 'marketing' and m.sent_at is not null
+      and m.status not in ('bounced', 'failed', 'rejected', 'suppressed')
+      and m.sent_at <= ap.booked_at and m.sent_at > ap.booked_at - make_interval(days => ${ATTRIBUTION_DAYS})
+      and (m.campaign_id is not null or m.flow_id is not null)
+    order by m.sent_at desc limit 1
+  ) lt`;
+
+/** One booking that followed an email, with the email it is credited to. */
+export type AttributedBooking = { bookedAt: Date; price: number; campaignId: string | null; flowId: string | null; contactId: string };
+
 export function createDiary(db: Db, getTenant: (appId: string, externalId: string) => Promise<Tenant>) {
   async function contactFor(tenant: Tenant, input: z.output<typeof AppointmentInput>) {
     const byExternal = input.contactExternalId
@@ -239,14 +256,7 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
       select lt.campaign_id, lt.flow_id, count(*)::int as bookings, coalesce(sum(ap.price), 0)::int as revenue
       from ${appointments} ap
       join ${contacts} c on c.id = ap.contact_id
-      cross join lateral (
-        select m.campaign_id, m.flow_id from messages m
-        where m.tenant_id = ap.tenant_id and m.to_email = c.email and m.stream = 'marketing' and m.sent_at is not null
-          and m.status not in ('bounced', 'failed', 'rejected', 'suppressed')
-          and m.sent_at <= ap.booked_at and m.sent_at > ap.booked_at - make_interval(days => ${ATTRIBUTION_DAYS})
-          and (m.campaign_id is not null or m.flow_id is not null)
-        order by m.sent_at desc limit 1
-      ) lt
+      ${lastTouch}
       where ap.tenant_id = ${tenantId} and ap.status <> 'cancelled' and ap.booked_at > now() - make_interval(days => ${sinceDays})
       group by lt.campaign_id, lt.flow_id
     `);
@@ -258,6 +268,19 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
       if (r.flow_id) flows.set(r.flow_id, v);
     }
     return { campaigns, flows };
+  }
+
+  /** Each booking made between `from` and `to` that followed an email, oldest first. */
+  async function attributedBookings(tenantId: string, from: Date, to: Date): Promise<AttributedBooking[]> {
+    const rows = await db.execute<{ booked_at: string; price: number | null; campaign_id: string | null; flow_id: string | null; contact_id: string }>(sql`
+      select ap.booked_at, ap.price, lt.campaign_id, lt.flow_id, ap.contact_id
+      from ${appointments} ap
+      join ${contacts} c on c.id = ap.contact_id
+      ${lastTouch}
+      where ap.tenant_id = ${tenantId} and ap.status <> 'cancelled' and ap.booked_at > ${from} and ap.booked_at <= ${to}
+      order by ap.booked_at
+    `);
+    return rows.rows.map((r) => ({ bookedAt: new Date(r.booked_at), price: Number(r.price ?? 0), campaignId: r.campaign_id, flowId: r.flow_id, contactId: r.contact_id }));
   }
 
   /** A client's recent and upcoming appointments, newest first. */
@@ -285,5 +308,5 @@ export function createDiary(db: Db, getTenant: (appId: string, externalId: strin
     return due.map((r) => ({ ...r, contact: byId.get(r.contactId)! }));
   }
 
-  return { upsertAppointment, setAvailability, rhythms, rhythmFor, diaryDays, slotsOn, attribution, appointmentsFor, dueSoon };
+  return { upsertAppointment, setAvailability, rhythms, rhythmFor, diaryDays, slotsOn, attribution, attributedBookings, appointmentsFor, dueSoon };
 }

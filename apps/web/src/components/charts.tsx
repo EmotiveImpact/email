@@ -31,13 +31,16 @@ const W = 640;
 const H = 150;
 const TOP = 10;
 
-export function AreaChart({ series, compare, label }: { series: number[]; compare?: number[]; label: string }) {
+export function AreaChart({ series, compare, label, height }: { series: number[]; compare?: number[]; label: string; height?: number }) {
   const max = Math.max(1, ...series, ...(compare ?? [])) * 1.15;
   const toPoints = (values: number[]): Point[] =>
     values.map((v, i) => [values.length === 1 ? W / 2 : (i * W) / (values.length - 1), TOP + (H - TOP) * (1 - v / max)]);
-  const line = smoothPath(toPoints(series));
+  const points = toPoints(series);
+  const line = smoothPath(points);
+  const last = points.at(-1);
   return (
-    <svg role="img" aria-label={label} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2.5 min-h-0 w-full flex-1 overflow-visible">
+    <div className="relative mt-2.5 min-h-0 w-full flex-1" style={height ? { height, flex: 'none' } : undefined}>
+    <svg role="img" aria-label={label} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible">
       <defs>
         <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="var(--accent)" stopOpacity="0.22" />
@@ -51,6 +54,30 @@ export function AreaChart({ series, compare, label }: { series: number[]; compar
         <path d={smoothPath(toPoints(compare))} fill="none" stroke="var(--faint)" strokeWidth="1.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
       )}
       <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+    {/* The end point, drawn in HTML so it stays round when the chart stretches. */}
+    {last && series.length > 1 && (
+      <span
+        aria-hidden
+        className="absolute size-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2.5px] border-accent bg-paper"
+        style={{ left: `${(last[0] / W) * 100}%`, top: `${(last[1] / H) * 100}%` }}
+      />
+    )}
+    </div>
+  );
+}
+
+/** A tiny trend line for a table cell. */
+export function Sparkline({ values, label, muted }: { values: number[]; label: string; muted?: boolean }) {
+  const w = 120;
+  const h = 28;
+  const max = Math.max(1, ...values);
+  const points: Point[] = values.map((v, i) => [values.length === 1 ? w / 2 : (i * w) / (values.length - 1), 3 + (h - 6) * (1 - v / max)]);
+  const line = smoothPath(points);
+  return (
+    <svg role="img" aria-label={label} viewBox={`0 0 ${w} ${h}`} className="h-7 w-[120px] overflow-visible">
+      {values.length > 1 && <path d={`${line} L${w},${h} L0,${h} Z`} fill={muted ? 'var(--soft)' : 'var(--tint)'} />}
+      <path d={line} fill="none" stroke={muted ? 'var(--faint)' : 'var(--accent)'} strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }

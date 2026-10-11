@@ -4,24 +4,25 @@ import type { MessageStatus } from '../api.ts';
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
 export function Card({ className, ...props }: ComponentProps<'section'>) {
-  return <section className={cx('rounded-2xl border border-rule bg-paper', className)} {...props} />;
+  return <section className={cx('rounded-[18px] bg-paper shadow-card', className)} {...props} />;
 }
 
 export function CardTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <h2 className="display m-0 text-[17px]">{children}</h2>
+      <h2 className="display m-0 text-[20px] leading-tight">{children}</h2>
       {aside && <span className="text-[13px] text-muted">{aside}</span>}
     </div>
   );
 }
 
-export function PageTitle({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
+export function PageTitle({ title, subtitle, actions, eyebrow }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; eyebrow?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="display m-0 text-[34px] leading-[1.05]">{title}</h1>
-        {subtitle && <div className="text-sm text-muted">{subtitle}</div>}
+    <div className="flex flex-wrap items-end justify-between gap-4 px-1 pt-2">
+      <div className="flex flex-col gap-2">
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+        <h1 className="display m-0 text-[40px] leading-none">{title}</h1>
+        {subtitle && <div className="max-w-[640px] text-[15px] leading-normal text-[#55555C]">{subtitle}</div>}
       </div>
       {actions}
     </div>
@@ -36,7 +37,7 @@ export function Button({ variant = 'primary', className, ...props }: ComponentPr
         'inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-full px-4 text-[13px] font-medium whitespace-nowrap transition disabled:cursor-default disabled:opacity-50',
         variant === 'primary' && 'bg-ink text-white hover:bg-black',
         variant === 'accent' && 'bg-accent text-on-accent hover:opacity-90',
-        variant === 'secondary' && 'border border-rule-strong bg-paper text-ink hover:bg-soft',
+        variant === 'secondary' && 'bg-paper text-ink shadow-ring hover:bg-soft',
         className,
       )}
       {...props}

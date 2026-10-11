@@ -367,6 +367,14 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     return c.json({ ...week, dueCount: due.length, due: due.slice(0, 8) });
   });
 
+  /** Home: money booked from email, the week by time of day, and what is worth doing today. */
+  r.get('/tenants/:id/overview', async (c) => {
+    const tenant = await tenantOf(c);
+    const days = Number(c.req.query('days') ?? 30);
+    if (![7, 30, 90].includes(days)) throw new PlatformError('invalid_request', 'days must be 7, 30 or 90.', 422);
+    return c.json(await engine.overview(tenant.id, days));
+  });
+
   r.get('/tenants/:id/flows', async (c) => c.json(await engine.listFlows((await tenantOf(c)).id)));
 
   r.get('/tenants/:id/flows/:flowId', async (c) => {

@@ -483,6 +483,7 @@ function useFlowAction<I>(tenant: string, id: string, call: (input: I) => Promis
     onSuccess: (fresh) => {
       client.setQueryData(['flow', tenant, id], fresh);
       void client.invalidateQueries({ queryKey: ['flows', tenant] });
+      void client.invalidateQueries({ queryKey: ['overview', tenant] });
     },
   });
 }
@@ -501,6 +502,48 @@ export function useToggleFlow(tenant: string) {
     onSuccess: (fresh) => {
       client.setQueryData(['flow', tenant, fresh.id], fresh);
       void client.invalidateQueries({ queryKey: ['flows', tenant] });
+      void client.invalidateQueries({ queryKey: ['overview', tenant] });
     },
   });
 }
+
+// ---------------------------------------------------------------- home
+
+export type Opportunity = {
+  kind: 'fill' | 'welcome' | 'rebook' | 'winback' | 'follow_up';
+  title: string;
+  detail: string;
+  /** In pence, when every person or slot books. */
+  value: number | null;
+  note: string;
+  action: { label: string; flowId?: string; campaignId?: string };
+  people?: { initials: string[]; more: number };
+};
+
+export type Overview = {
+  days: number;
+  revenue: {
+    revenue: number;
+    bookings: number;
+    previous: number;
+    previousBookings: number;
+    flows: number;
+    campaigns: number;
+    /** Percentage change on the period before, or null when there was nothing before. */
+    change: number | null;
+    daily: { revenue: number; bookings: number; previous: number; previousBookings: number }[];
+  };
+  week: {
+    connected: boolean;
+    timezone: string;
+    parts: string[];
+    days: { day: string; open: number; booked: number; parts: { open: number; booked: number }[] }[];
+    quietest: { day: string; part: number; open: number; dayOpen: number } | null;
+  };
+  dueCount: number;
+  opportunities: Opportunity[];
+  flows: { id: string; kind: FlowKind; name: string; live: boolean; sent: number; daily: number[]; bookings: number; revenue: number }[];
+};
+
+export const overviewQuery = (tenant: string, days = 30) =>
+  queryOptions({ queryKey: ['overview', tenant, days], queryFn: () => request<Overview>(`/app/tenants/${tenant}/overview?days=${days}`), refetchInterval: 60_000 });
