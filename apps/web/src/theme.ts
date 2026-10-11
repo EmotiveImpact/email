@@ -18,7 +18,6 @@ type Shades = { name: string; accent: string; light: string; deep: string; ink: 
 
 /** Hand-tuned presets. Any other colour is derived with `shadesFor`. */
 export const ACCENTS: Shades[] = [
-  { name: 'Lilac', accent: '#5B49D6', light: '#B6AAF0', deep: '#2D2470', ink: '#4A39B8', tint: '#EEEBFC' },
   { name: 'Ember', accent: '#D9481F', light: '#F39A74', deep: '#6E220C', ink: '#A8350F', tint: '#FDF1EC' },
   { name: 'Sage', accent: '#4F7F67', light: '#9CC4AE', deep: '#20372B', ink: '#3B654F', tint: '#EEF5F1' },
   { name: 'Indigo', accent: '#4B4FD8', light: '#A5A8F5', deep: '#1D1F63', ink: '#3A3DB5', tint: '#EFEFFD' },
@@ -32,7 +31,7 @@ export const FONTS = {
   serif: { label: 'Serif', display: "'Newsreader Variable', Georgia, serif", weight: '400', track: '-0.01em' },
 } as const;
 
-export const DEFAULT_BRAND: Required<Omit<Brand, 'logoUrl' | 'address' | 'bookingUrl'>> = { accent: '#5B49D6', rail: 'pigment', headingFont: 'cal-sans' };
+export const DEFAULT_BRAND: Required<Omit<Brand, 'logoUrl' | 'address' | 'bookingUrl'>> = { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans' };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -95,22 +94,17 @@ export function brandVars(brand: Brand = {}): Record<string, string> {
     '--display': font.display,
     '--display-weight': font.weight,
     '--display-track': font.track,
-    // Night at the top fading to a pastel of the accent at the bottom (D80).
     '--rail-bg': pigment
-      ? `linear-gradient(180deg, ${mix(shades.deep, '#000000', 0.6)} 0%, ${shades.deep} 42%, ${mix(shades.accent, '#FFFFFF', 0.76)} 100%)`
+      ? `radial-gradient(ellipse 160px 360px at 115% 0, ${shades.light} 0%, ${shades.accent} 26%, ${shades.deep} 55%, #0C0C0E 85%)`
       : 'transparent',
-    '--rail-icon': pigment ? '#E7E4EE' : '#55555C',
-    // The foot of the rail is pale, so its icons and avatar turn dark.
-    '--rail-foot-icon': pigment ? shades.deep : '#55555C',
-    '--rail-foot-active-bg': pigment ? '#FFFFFFA6' : '#FFFFFF',
-    '--rail-foot-active-ink': pigment ? shades.deep : '#121214',
+    '--rail-icon': pigment ? '#E7E4DE' : '#55555C',
     '--rail-active-bg': pigment ? '#FFFFFF26' : '#FFFFFF',
     '--rail-active-ink': pigment ? '#FFFFFF' : '#121214',
     '--rail-active-shadow': pigment ? 'none' : '0 1px 2px #0000001A',
     '--logo-bg': pigment ? '#FFFFFF' : shades.accent,
     '--logo-ink': pigment ? '#121214' : '#FFFFFF',
-    '--avatar-bg': pigment ? shades.deep : '#121214',
-    '--avatar-ink': '#FFFFFF',
+    '--avatar-bg': pigment ? '#F2EFEA' : '#121214',
+    '--avatar-ink': pigment ? '#121214' : '#FFFFFF',
     '--grain': pigment ? '0.28' : '0',
   };
 }

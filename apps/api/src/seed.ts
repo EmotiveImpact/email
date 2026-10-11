@@ -14,7 +14,7 @@ const caleane = (await engine.createApp(accountId, 'Caleane')).id;
 const linden = await engine.upsertTenant(saleane, 'linden', {
   name: 'Linden Studio',
   fromEmail: 'news@linden.example',
-  brand: { accent: '#5B49D6', rail: 'pigment', headingFont: 'cal-sans', address: 'Linden Studio, 4 Linden Row, Leeds LS1 4AB', bookingUrl: 'https://linden.example/book' },
+  brand: { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans', address: 'Linden Studio, 4 Linden Row, Leeds LS1 4AB', bookingUrl: 'https://linden.example/book' },
   timezone: 'Europe/London',
 });
 const harbour = await engine.upsertTenant(caleane, 'harbour-films', { name: 'Harbour Films', fromEmail: 'hello@harbourfilms.example', brand: { accent: '#4B4FD8', rail: 'light' } });

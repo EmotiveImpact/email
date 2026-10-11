@@ -401,7 +401,5 @@ Mocks for every key screen, the design components and four palettes are on one c
 - **Why:** owners should never leave the email to find or make a picture.
 
 
-### D80. The standard look is Midnight to Lilac
-- **Picked:** Edem chose it on 11 Oct 2026, replacing D72's open question. The rail fades from near black through deep indigo to a pastel of the accent; the icons at its pale foot and the avatar turn dark. Default accent Lilac `#5B49D6` (new first preset), with the email default and demo data to match. The page neutrals move from warm grey to a cool grey (`--canvas: #EFEEF3`).
-- **Considered:** Forest to Mint, Navy to Sky, Aubergine to Blush, the black to orange (Ember) rail and four all-pastel looks, which Edem rejected.
-- **Why:** a dark top keeps the rail strong, the pastel foot keeps it soft. Any other accent gets the same fade, and a test keeps the foot icons readable for every preset.
+### D80. The colours stay as they were for now
+- **Picked:** Edem saw Midnight to Lilac in the app and asked to go back to the earlier look (Ember accent, dark rail with the warm glow) and keep building. Colour stays an open question for Edem; it is still one change in `theme.ts` and `styles.css` (D72).

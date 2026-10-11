@@ -16,7 +16,7 @@ export function themeFromBrand(
   businessName: string,
   brand: { accent?: string; headingFont?: EmailTheme['headingFont']; logoUrl?: string; address?: string; bookingUrl?: string } = {},
 ): EmailTheme {
-  const accent = brand.accent && HEX.test(brand.accent) ? brand.accent.toUpperCase() : '#5B49D6';
+  const accent = brand.accent && HEX.test(brand.accent) ? brand.accent.toUpperCase() : '#D9481F';
   // White text on the accent when it reads at 3:1 or better (WCAG for large text), else near-black.
   const onAccent = 1.05 / (luminance(accent) + 0.05) >= 3 ? '#FFFFFF' : '#121214';
   return {
