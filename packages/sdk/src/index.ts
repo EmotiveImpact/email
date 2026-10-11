@@ -40,8 +40,70 @@ export type SendEmail = {
   idempotencyKey?: string;
 };
 
-export type Brand = { accent?: string; rail?: 'light' | 'pigment'; headingFont?: 'cal-sans' | 'geist' | 'serif'; logoUrl?: string };
-export type Tenant = { id: string; name: string; fromEmail: string | null; replyTo: string | null; status: 'active' | 'paused'; brand: Brand };
+export type Brand = {
+  accent?: string;
+  rail?: 'light' | 'pigment';
+  headingFont?: 'cal-sans' | 'geist' | 'serif';
+  logoUrl?: string;
+  /** Postal address for the foot of marketing email. */
+  address?: string;
+  /** The business's online booking page. Flows link here, with `?at=` for a chosen free time. */
+  bookingUrl?: string;
+};
+export type Tenant = {
+  id: string;
+  name: string;
+  fromEmail: string | null;
+  replyTo: string | null;
+  status: 'active' | 'paused';
+  pausedReason: string | null;
+  timezone: string;
+  brand: Brand;
+};
+
+export type AppointmentStatus = 'booked' | 'completed' | 'cancelled' | 'no_show';
+
+/** A booking from your diary. Send it when it is made and whenever it changes. */
+export type AppointmentInput = {
+  tenant: string;
+  /** Your id for the booking; sending the same id again updates it. */
+  id: string;
+  /** The client, by email or by the externalId you gave their contact. */
+  email?: string;
+  contactExternalId?: string;
+  firstName?: string;
+  lastName?: string;
+  startsAt: string | Date;
+  endsAt?: string | Date;
+  service?: string;
+  staff?: string;
+  /** In minor units: 4500 is £45.00. */
+  price?: number;
+  currency?: string;
+  status?: AppointmentStatus;
+  /** When the client booked. Defaults to now; bookings are credited to the email before this. */
+  bookedAt?: string | Date;
+};
+
+export type Appointment = {
+  id: string;
+  startsAt: string;
+  endsAt: string | null;
+  service: string | null;
+  staff: string | null;
+  price: number | null;
+  currency: string;
+  status: AppointmentStatus;
+  bookedAt: string;
+};
+
+/** Free time in your diary for a window. Replaces what was sent for that window before. */
+export type AvailabilityInput = {
+  tenant: string;
+  from: string | Date;
+  to: string | Date;
+  slots: { startsAt: string | Date; endsAt: string | Date; staff?: string; service?: string }[];
+};
 
 export type Contact = {
   id: string;
@@ -55,7 +117,8 @@ export type Contact = {
 
 export type WebhookEventType =
   | 'email.sent' | 'email.delivered' | 'email.delivery_delayed' | 'email.bounced' | 'email.complained'
-  | 'email.rejected' | 'email.failed' | 'email.opened' | 'email.clicked' | 'contact.unsubscribed';
+  | 'email.rejected' | 'email.failed' | 'email.opened' | 'email.clicked' | 'contact.unsubscribed'
+  | 'domain.verified' | 'tenant.paused';
 
 export type WebhookEvent = { type: WebhookEventType; createdAt: string; data: Record<string, unknown> & { tenant: string } };
 
@@ -93,8 +156,11 @@ export class PlatformClient {
   };
 
   readonly tenants = {
-    /** Creates or replaces a tenant (one business inside your app). */
-    put: (id: string, tenant: { name: string; fromEmail?: string; replyTo?: string; brand?: Brand }) =>
+    /**
+     * Creates or updates a tenant (one business inside your app). Leave out `brand` to keep what
+     * the business set in the app; `timezone` (IANA, default Europe/London) times flows.
+     */
+    put: (id: string, tenant: { name: string; fromEmail?: string; replyTo?: string; brand?: Brand; timezone?: string }) =>
       this.call<Tenant>('PUT', `/v1/tenants/${encodeURIComponent(id)}`, tenant),
   };
 
@@ -114,6 +180,16 @@ export class PlatformClient {
     /** Tells the platform something happened in your app, e.g. "booking.created". */
     record: (event: { tenant: string; name: string; email?: string; contactExternalId?: string; properties?: Record<string, unknown>; occurredAt?: string }) =>
       this.call<{ id: string; name: string; matchedContact: boolean }>('POST', '/v1/events', event),
+  };
+
+  /** Your diary. With bookings and free time, flows can nudge clients who are due and fill quiet days. */
+  readonly appointments = {
+    upsert: (appointment: AppointmentInput) => this.call<Appointment>('PUT', '/v1/appointments', appointment),
+  };
+
+  readonly availability = {
+    /** Send the free slots for a window (say the next two weeks) whenever your diary changes. */
+    set: (availability: AvailabilityInput) => this.call<{ slots: number }>('PUT', '/v1/availability', availability),
   };
 
   readonly webhooks = {
@@ -139,7 +215,7 @@ export type StudioSessionInput = {
   user: { id: string; name?: string; email?: string };
   /** Your app's look, so the studio reads as part of it. */
   theme?: { accent?: string; headingFont?: 'cal-sans' | 'geist' | 'serif'; canvas?: string };
-  page?: 'campaigns' | 'audience';
+  page?: 'campaigns' | 'flows' | 'audience';
 };
 
 /** Checks a webhook really came from the platform and returns the event. Throws if not. */

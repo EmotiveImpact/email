@@ -8,3 +8,7 @@ export * from './types.ts';
 export * from './studio.ts';
 export * from './domains.ts';
 export * from './provisioning.ts';
+export * from './diary.ts';
+export * from './flows.ts';
+export * from './slots.ts';
+export { sampleValues } from './campaigns.ts';

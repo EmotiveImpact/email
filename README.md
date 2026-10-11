@@ -52,6 +52,31 @@ await email.emails.send({
 
 Marketing email (`stream: 'marketing'`) only goes to contacts with recorded consent, carries one-click unsubscribe headers, and is held back for anyone who unsubscribed or complained. Reminders and receipts (`transactional`, the default) still go.
 
+## Send your diary
+
+Flows need your bookings and free time. Send each booking when it is made or changes, and the free slots for the next fortnight whenever your diary changes:
+
+```ts
+await email.appointments.upsert({
+  tenant: 'linden',
+  id: booking.id, // your id; sending it again updates the booking
+  email: client.email,
+  startsAt: booking.start,
+  service: 'Balayage',
+  price: 9500, // pence
+  status: 'booked', // or completed, cancelled, no_show
+});
+
+await email.availability.set({
+  tenant: 'linden',
+  from: today,
+  to: inTwoWeeks,
+  slots: freeSlots.map((s) => ({ startsAt: s.start, endsAt: s.end, staff: s.stylist })),
+});
+```
+
+Give each business a booking link (`brand.bookingUrl`) and time zone (`timezone`, default Europe/London) with `email.tenants.put`, or in Appearance. Flows then run every hour: a thank-you after a first visit, due back, fill quiet days and we miss you. Owners switch them on under Flows. Free-time buttons open the booking link with `?at=<ISO time>`, so your booking page can preselect that slot.
+
 ## Put the studio inside your app
 
 Allow your page's origin once, then create a session on your server whenever someone opens Email, and mount it in the page:

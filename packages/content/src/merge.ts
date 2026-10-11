@@ -8,6 +8,10 @@ export const MERGE_TAGS = [
   { key: 'last_name', label: 'Last name' },
   { key: 'email', label: 'Email' },
   { key: 'business_name', label: 'Business name' },
+  { key: 'booking_url', label: 'Booking link' },
+  { key: 'last_service', label: 'Their last treatment' },
+  { key: 'weeks_since_visit', label: 'Weeks since their visit' },
+  { key: 'slot_day', label: 'The day with space (fill-slots emails)' },
 ] as const;
 
 const TAG = /\{\{\s*([a-z_]+)\s*(?:\|([^}]*))?\}\}/g;

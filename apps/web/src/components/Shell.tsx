@@ -340,6 +340,7 @@ function writeLastTenant(id: string) {
 
 const STUDIO_TABS = [
   { to: '/$tenant/campaigns', label: 'Campaigns' },
+  { to: '/$tenant/flows', label: 'Flows' },
   { to: '/$tenant/audience', label: 'Audience' },
 ] as const;
 

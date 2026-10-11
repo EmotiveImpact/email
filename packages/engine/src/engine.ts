@@ -6,6 +6,7 @@ import {
   appEvents,
   consents,
   contacts,
+  flows,
   messageEvents,
   messages,
   newId,
@@ -22,7 +23,9 @@ import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
 import { createAudience } from './audience.ts';
 import { createCampaigns } from './campaigns.ts';
+import { createDiary } from './diary.ts';
 import { createDomains } from './domains.ts';
+import { createFlows } from './flows.ts';
 import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
@@ -102,6 +105,15 @@ export const RecordEventInput = z.object({
 });
 export type RecordEventInput = z.input<typeof RecordEventInput>;
 
+function isTimeZone(tz: string) {
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const UpsertTenantInput = z.object({
   name: z.string().trim().min(1).max(256),
   fromEmail: z.string().trim().min(3).optional(),
@@ -117,7 +129,13 @@ export const UpsertTenantInput = z.object({
       headingFont: z.enum(['cal-sans', 'geist', 'serif']).optional(),
       logoUrl: z.url().optional(),
       address: z.string().max(300).optional(),
+      bookingUrl: z.url().optional(),
     })
+    .optional(),
+  /** IANA time zone, such as Europe/London. Flows send in the business's daytime. */
+  timezone: z
+    .string()
+    .refine(isTimeZone, 'Use an IANA time zone such as Europe/London.')
     .optional(),
 });
 export type UpsertTenantInput = z.input<typeof UpsertTenantInput>;
@@ -216,7 +234,10 @@ export function createEngine(deps: {
     resolveTxt: deps.resolveTxt,
     onVerified: (domain) => emit(domain.tenantId, 'domain.verified', null, { domain: domain.domain }),
   });
-  const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate: config.sendRate ?? 10 });
+  const sendRate = config.sendRate ?? 10;
+  const diary = createDiary(db, getTenant);
+  const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary });
+  const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots });
 
   // ---------------------------------------------------------------- accounts, apps and keys
 
@@ -265,7 +286,9 @@ export function createEngine(deps: {
       fromEmail: input.fromEmail ?? null,
       replyTo: input.replyTo ?? null,
       ...(input.sesTenant && { sesTenant: input.sesTenant }),
-      brand: (input.brand ?? {}) as Brand,
+      // Left alone when not sent, so a host app's sync does not wipe what the business set in Appearance.
+      ...(input.brand && { brand: input.brand as Brand }),
+      ...(input.timezone && { timezone: input.timezone }),
     };
     const [row] = await db
       .insert(tenants)
@@ -769,12 +792,25 @@ export function createEngine(deps: {
     if (name === 'deliver-webhook') return processWebhook((data as Jobs['deliver-webhook']).deliveryId);
     if (name === 'send-campaign') return campaignsApi.processCampaign((data as Jobs['send-campaign']).campaignId);
     if (name === 'check-domain') return void (await domainsApi.checkDomain((data as Jobs['check-domain']).domainId, { reschedule: true }));
+    if (name === 'run-flows') {
+      const { tenantId } = data as Jobs['run-flows'];
+      if (tenantId) return void (await flowsApi.runFlows(tenantId));
+      // The hourly tick: one job per business with a flow switched on.
+      const due = await db
+        .selectDistinct({ tenantId: flows.tenantId })
+        .from(flows)
+        .innerJoin(tenants, eq(tenants.id, flows.tenantId))
+        .where(and(eq(flows.live, true), eq(tenants.status, 'active')));
+      await queue.enqueueMany('run-flows', due.map((d) => ({ data: { tenantId: d.tenantId } })));
+    }
   }
 
   return {
     ...createAudience(db),
     ...campaignsApi,
     ...domainsApi,
+    ...diary,
+    ...flowsApi,
     reputation,
     resumeTenant,
     ...createStudio(db),

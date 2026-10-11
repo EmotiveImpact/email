@@ -27,6 +27,11 @@ it('talks to the API end to end, including webhook verification', async () => {
   const event = await client.events.record({ tenant: 'caleane-studio', name: 'project.completed', email: 'ama@example.com' });
   expect(event.matchedContact).toBe(true);
 
+  const booking = await client.appointments.upsert({ tenant: 'caleane-studio', id: 'shoot-1', email: 'ama@example.com', startsAt: new Date(Date.now() + 86_400_000), service: 'Portrait session', price: 25000 });
+  expect(booking).toMatchObject({ id: 'shoot-1', status: 'booked', currency: 'GBP' });
+  const from = new Date();
+  expect(await client.availability.set({ tenant: 'caleane-studio', from, to: new Date(from.getTime() + 7 * 86_400_000), slots: [] })).toEqual({ slots: 0 });
+
   const { secret } = await client.webhooks.create('https://caleane.test/hooks', ['email.sent']);
   const email = await client.emails.send({ tenant: 'caleane-studio', to: 'ama@example.com', subject: 'Your gallery is ready', text: 'Hi', idempotencyKey: 'gallery-1' });
   expect(email.status).toBe('queued');

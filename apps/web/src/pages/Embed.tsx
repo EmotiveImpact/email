@@ -9,12 +9,14 @@ import { endStudio, startStudio, studioSession, tellHost, type StudioSession } f
  * so it never reaches server logs; it is swapped once for a session and wiped from the address.
  */
 /** Opens once per page load, even when React runs effects twice (development) or re-renders. */
-let opening: Promise<{ tenantId: string; page: 'campaigns' | 'audience' }> | null = null;
+type Page = 'campaigns' | 'flows' | 'audience';
+let opening: Promise<{ tenantId: string; page: Page }> | null = null;
 
 function open() {
   opening ??= (async () => {
     const token = new URLSearchParams(window.location.hash.slice(1)).get('token');
-    const page = new URLSearchParams(window.location.search).get('page') === 'audience' ? 'audience' : 'campaigns';
+    const asked = new URLSearchParams(window.location.search).get('page');
+    const page: Page = asked === 'audience' || asked === 'flows' ? asked : 'campaigns';
     if (token) history.replaceState(null, '', window.location.pathname + window.location.search);
     if (window.parent === window) throw new Error('The studio opens inside your app. Go back to it and open Email from there.');
     if (token) {
@@ -39,7 +41,7 @@ export function Embed() {
       .then(({ tenantId, page }) => {
         if (!live) return;
         queryClient.removeQueries({ queryKey: ['me'] });
-        return navigate({ to: page === 'audience' ? '/$tenant/audience' : '/$tenant/campaigns', params: { tenant: tenantId }, replace: true });
+        return navigate({ to: `/$tenant/${page}`, params: { tenant: tenantId }, replace: true });
       })
       .catch((error: unknown) => {
         if (!live) return;

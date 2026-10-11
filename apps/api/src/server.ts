@@ -14,6 +14,8 @@ const api = createApi({
 
 // The API and the queue worker share a process for now; split them when volume asks for it.
 await queue.work((name, data) => engine.runJob(name, data));
+// Flows check the diary every hour, a few minutes past, for every business with one switched on.
+await queue.schedule('run-flows', '5 * * * *', {});
 
 serve({ fetch: api.fetch, port }, () => {
   console.log(`API on http://localhost:${port} · sending with "${transport.name}" transport`);

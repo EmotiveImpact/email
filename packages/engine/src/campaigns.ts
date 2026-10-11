@@ -2,7 +2,7 @@
  * Campaigns: write once, send to a segment. Sending expands the audience into one stored message
  * per person (so each has its own history and unsubscribe link) and paces them through the queue.
  */
-import { EmailDoc, fillMergeTags, problems, renderEmail, starterDoc, themeFromBrand, unknownMergeTags } from '@platform/content';
+import { EmailDoc, fillMergeTags, problems, renderEmail, starterDoc, themeFromBrand, unknownMergeTags, type SlotLink } from '@platform/content';
 import {
   and,
   campaigns,
@@ -21,6 +21,8 @@ import {
   type Db,
 } from '@platform/db';
 import { compileSegment, parseDefinition } from './audience.ts';
+import type { createDiary } from './diary.ts';
+import { sampleSlots } from './slots.ts';
 import type { Queue } from './queue.ts';
 import { PlatformError } from './types.ts';
 
@@ -31,7 +33,28 @@ export type CampaignDeps = {
   senderFor: (tenant: typeof tenants.$inferSelect) => Promise<{ from: string; replyTo: string | null; own: boolean }>;
   /** Emails per second this platform may send (the SES account's rate, shared by everyone). */
   sendRate: number;
+  /** Visit history and free times, for personal merge tags and the free-times block. */
+  diary: ReturnType<typeof createDiary>;
+  /** Free times as booking links, for the free-times block (see flows.ts). */
+  upcomingSlots: (tenant: typeof tenants.$inferSelect) => Promise<SlotLink[]>;
 };
+
+/** Made-up values for tests and previews, so every merge tag shows something sensible. */
+export function sampleValues(tenant: { name: string; brand: { bookingUrl?: string } }, email: string) {
+  return {
+    first_name: 'Ama',
+    last_name: 'Mensah',
+    email,
+    business_name: tenant.name,
+    booking_url: tenant.brand.bookingUrl ?? '#',
+    last_service: 'Balayage',
+    weeks_since_visit: '7',
+    slot_day: 'Thursday',
+  };
+}
+
+/** True when the email links to the booking page through {{booking_url}}. */
+export const usesBookingUrl = (subject: string, content: unknown) => /\{\{\s*booking_url/.test(`${subject} ${JSON.stringify(content)}`);
 
 type Campaign = typeof campaigns.$inferSelect;
 
@@ -44,11 +67,18 @@ export function parseContent(raw: unknown) {
   return result.data;
 }
 
-export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps) {
+export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomingSlots }: CampaignDeps) {
   async function tenantById(tenantId: string) {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) throw new PlatformError('not_found', 'No such business.', 404);
     return tenant;
+  }
+
+  /** Free times for the free-times block, if the email has one. Tests and previews fall back to examples. */
+  async function slotsFor(tenant: typeof tenants.$inferSelect, doc: EmailDoc, sample: boolean) {
+    if (!doc.blocks.some((b) => b.type === 'slots')) return [];
+    const slots = await upcomingSlots(tenant);
+    return slots.length || !sample ? slots : sampleSlots(tenant.timezone, tenant.brand.bookingUrl, new Date(), true);
   }
 
   async function getCampaign(tenantId: string, id: string) {
@@ -130,6 +160,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
     const typos = unknownMergeTags(`${campaign.subject} ${JSON.stringify(doc.blocks)}`);
     if (typos.length) found.push(`Unknown merge tag: {{${typos[0]}}}.`);
     if (!tenant.brand.address?.trim()) found.push('Add your postal address in Appearance; it goes at the foot of the email.');
+    if (!tenant.brand.bookingUrl && usesBookingUrl(campaign.subject, doc.blocks)) found.push('Add your booking link in Appearance; this email uses it.');
     if (tenant.status === 'paused') found.push('Sending is paused for this business.');
     const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
     if (audience.eligible === 0) found.push('Nobody in this audience has said yes to news.');
@@ -180,13 +211,16 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
       return;
     }
     const tenant = await tenantById(campaign.tenantId);
-    const { html, text } = await renderEmail(parseContent(campaign.content), themeFromBrand(tenant.name, tenant.brand));
+    const doc = parseContent(campaign.content);
+    const slots = await slotsFor(tenant, doc, false);
+    const { html, text } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
+    const rhythms = new Map((await diary.rhythms(campaign.tenantId)).map((r) => [r.contactId, r]));
     const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
     const inSegment = campaign.segmentId
       ? compileSegment(parseDefinition((await segmentOf(campaign.tenantId, campaign.segmentId)).definition))
       : sql`true`;
     const people = await db
-      .select({ email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName })
+      .select({ id: contacts.id, email: contacts.email, firstName: contacts.firstName, lastName: contacts.lastName })
       .from(contacts)
       .where(
         and(
@@ -202,7 +236,17 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
     let index = 0;
     for (let i = 0; i < people.length; i += 500) {
       const rows = people.slice(i, i + 500).map((p) => {
-        const values = { first_name: p.firstName, last_name: p.lastName, email: p.email, business_name: tenant.name };
+        const rhythm = rhythms.get(p.id);
+        const values = {
+          first_name: p.firstName,
+          last_name: p.lastName,
+          email: p.email,
+          business_name: tenant.name,
+          booking_url: tenant.brand.bookingUrl ?? '',
+          last_service: rhythm?.lastService ?? '',
+          weeks_since_visit: rhythm?.lastVisit ? String(Math.max(1, Math.round((start - rhythm.lastVisit.getTime()) / (7 * 86_400_000)))) : '',
+          slot_day: '',
+        };
         return {
           id: newId('msg'),
           tenantId: campaign.tenantId,
@@ -241,8 +285,10 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
     const campaign = await getCampaign(tenantId, id);
     const tenant = await tenantById(tenantId);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new PlatformError('invalid_request', 'That email address does not look right.', 422);
-    const { html, text } = await renderEmail(parseContent(campaign.content), themeFromBrand(tenant.name, tenant.brand));
-    const values = { first_name: 'Ama', last_name: 'Mensah', email: to, business_name: tenant.name };
+    const doc = parseContent(campaign.content);
+    const slots = await slotsFor(tenant, doc, true);
+    const { html, text } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
+    const values = sampleValues(tenant, to);
     const sender = await senderFor(tenant);
     const [row] = await db
       .insert(messages)
@@ -264,9 +310,9 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
   }
 
   /** Results: how many got it, opened, clicked, bounced, complained or unsubscribed. */
-  async function campaignStats(campaignIds: string[]) {
+  async function campaignStats(campaignIds: string[], tenantId?: string) {
     if (campaignIds.length === 0) return new Map<string, ReturnType<typeof emptyStats>>();
-    const [byStatus, byEvent] = await Promise.all([
+    const [byStatus, byEvent, attribution] = await Promise.all([
       db
         .select({ campaignId: messages.campaignId, status: messages.status, n: sql<number>`count(*)::int` })
         .from(messages)
@@ -278,6 +324,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
         .innerJoin(messages, eq(messages.id, messageEvents.messageId))
         .where(and(inArray(messages.campaignId, campaignIds), inArray(messageEvents.type, ['open', 'click', 'unsubscribe'])))
         .groupBy(messages.campaignId, messageEvents.type),
+      tenantId ? diary.attribution(tenantId).then((a) => a.campaigns) : new Map<string, { bookings: number; revenue: number }>(),
     ]);
     const out = new Map(campaignIds.map((id) => [id, emptyStats()]));
     for (const r of byStatus) {
@@ -294,12 +341,14 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
       if (r.type === 'click') s.clicked = r.n;
       if (r.type === 'unsubscribe') s.unsubscribed = r.n;
     }
+    // Bookings that followed the email (see diary.ts for how they are credited).
+    for (const [id, v] of attribution) if (out.has(id)) Object.assign(out.get(id)!, v);
     return out;
   }
 
   async function listCampaigns(tenantId: string) {
     const rows = await db.select().from(campaigns).where(eq(campaigns.tenantId, tenantId)).orderBy(desc(campaigns.createdAt));
-    const stats = await campaignStats(rows.filter((r) => r.status === 'sent' || r.status === 'sending').map((r) => r.id));
+    const stats = await campaignStats(rows.filter((r) => r.status === 'sent' || r.status === 'sending').map((r) => r.id), tenantId);
     return rows.map((r) => ({ ...r, stats: stats.get(r.id) ?? null }));
   }
 
@@ -307,7 +356,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
     const campaign = await getCampaign(tenantId, id);
     const [{ problems: found, audience }, stats] = await Promise.all([
       campaign.status === 'draft' ? readiness(campaign) : Promise.resolve({ problems: [] as string[], audience: null }),
-      campaignStats([campaign.id]),
+      campaignStats([campaign.id], tenantId),
     ]);
     const sender = await senderFor(await tenantById(tenantId));
     return {
@@ -322,8 +371,10 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
   /** The email as it will look, for the editor's preview. */
   async function previewCampaign(tenantId: string, content: unknown) {
     const tenant = await tenantById(tenantId);
-    const { html } = await renderEmail(parseContent(content), themeFromBrand(tenant.name, tenant.brand));
-    return fillMergeTags(html, { first_name: 'Ama', last_name: 'Mensah', email: 'ama@example.com', business_name: tenant.name }).replaceAll('{{unsubscribe_url}}', '#');
+    const doc = parseContent(content);
+    const slots = await slotsFor(tenant, doc, true);
+    const { html } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });
+    return fillMergeTags(html, sampleValues(tenant, 'ama@example.com')).replaceAll('{{unsubscribe_url}}', '#');
   }
 
   return {
@@ -343,7 +394,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate }: CampaignDeps
 }
 
 function emptyStats() {
-  return { total: 0, pending: 0, delivered: 0, bounced: 0, complained: 0, opened: 0, clicked: 0, unsubscribed: 0 };
+  return { total: 0, pending: 0, delivered: 0, bounced: 0, complained: 0, opened: 0, clicked: 0, unsubscribed: 0, bookings: 0, revenue: 0 };
 }
 
 export type CampaignStatusName = CampaignStatus;

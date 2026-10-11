@@ -5,9 +5,11 @@ export type Jobs = {
   'deliver-webhook': { deliveryId: string };
   'send-campaign': { campaignId: string };
   'check-domain': { domainId: string };
+  /** Without a tenant: the hourly tick, which queues one run per business with live flows. */
+  'run-flows': { tenantId?: string };
 };
 export type JobName = keyof Jobs;
-export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign', 'check-domain'];
+export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign', 'check-domain', 'run-flows'];
 
 export type EnqueueOptions = {
   /** Do not run before this time. Used to pace campaign sends and to schedule campaigns. */
@@ -77,6 +79,11 @@ export class PgBossQueue implements Queue {
         for (const job of jobs) await run(name, job.data);
       });
     }
+  }
+
+  /** Runs a job on a cron schedule (UTC). pg-boss makes sure only one instance sends each tick. */
+  async schedule<N extends JobName>(name: N, cron: string, data: Jobs[N]) {
+    await this.boss.schedule(name, cron, data, { tz: 'UTC' });
   }
 
   stop() {

@@ -134,3 +134,23 @@ export function Notice({ tone = 'neutral', children }: { tone?: 'neutral' | 'bad
     </div>
   );
 }
+
+/** An on/off switch. */
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (on: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        'relative inline-flex h-6 w-[42px] shrink-0 cursor-pointer items-center rounded-full border-0 p-0 transition disabled:cursor-default disabled:opacity-50',
+        checked ? 'bg-good' : 'bg-rule-strong',
+      )}
+    >
+      <span className={cx('absolute size-[18px] rounded-full bg-white shadow-[0_1px_2px_#00000033] transition-[left]', checked ? 'left-[21px]' : 'left-[3px]')} />
+    </button>
+  );
+}

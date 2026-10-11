@@ -7,11 +7,20 @@ import { ACCENTS, DEFAULT_BRAND, FONTS, shadesFor, type Brand } from '../theme.t
 
 type Font = keyof typeof FONTS;
 
+const TIME_ZONES: string[] = (() => {
+  try {
+    return Intl.supportedValuesOf('timeZone');
+  } catch {
+    return ['Europe/London'];
+  }
+})();
+
 export function Appearance() {
   const tenant = useTenant();
   const { setPreview } = useBrandPreview();
   const saved = { ...DEFAULT_BRAND, ...tenant.brand };
   const [draft, setDraft] = useState<Brand>(saved);
+  const [timezone, setTimezone] = useState(tenant.timezone);
   const save = useSaveBrand(tenant.id);
   const accent = shadesFor(draft.accent).accent;
   const dirty =
@@ -19,7 +28,9 @@ export function Appearance() {
     draft.rail !== saved.rail ||
     draft.headingFont !== saved.headingFont ||
     (draft.logoUrl ?? '') !== (saved.logoUrl ?? '') ||
-    (draft.address ?? '') !== (saved.address ?? '');
+    (draft.address ?? '') !== (saved.address ?? '') ||
+    (draft.bookingUrl ?? '') !== (saved.bookingUrl ?? '') ||
+    timezone !== tenant.timezone;
 
   // The whole app shows the draft while this page is open; leaving the page drops it.
   useEffect(() => setPreview(draft), [draft, setPreview]);
@@ -40,7 +51,20 @@ export function Appearance() {
             <Button variant="secondary" onClick={() => update({ ...DEFAULT_BRAND })} disabled={save.isPending}>
               <RotateCcw size={14} /> Standard look
             </Button>
-            <Button onClick={() => save.mutate({ accent, rail: draft.rail, headingFont: draft.headingFont, logoUrl: draft.logoUrl?.trim() ?? '', address: draft.address?.trim() ?? '' })} disabled={!dirty || save.isPending}>
+            <Button
+              onClick={() =>
+                save.mutate({
+                  accent,
+                  rail: draft.rail,
+                  headingFont: draft.headingFont,
+                  logoUrl: draft.logoUrl?.trim() ?? '',
+                  address: draft.address?.trim() ?? '',
+                  bookingUrl: draft.bookingUrl?.trim() ?? '',
+                  timezone,
+                })
+              }
+              disabled={!dirty || save.isPending}
+            >
               {save.isSuccess && !dirty ? (
                 <>
                   <Check size={14} /> Saved
@@ -129,6 +153,34 @@ export function Appearance() {
             placeholder="4 Linden Row, Leeds LS1 4AB"
             className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
           />
+        </Field>
+      </Card>
+
+      <Card className="flex flex-col gap-6 px-6 py-6">
+        <Field label="Booking link" hint="Your online booking page. Flows and booking buttons send clients here, and free-time buttons open it at that time.">
+          <input
+            value={draft.bookingUrl ?? ''}
+            onChange={(e) => update({ bookingUrl: e.target.value })}
+            placeholder="https://lindenstudio.co.uk/book"
+            className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2.5 font-[inherit] text-[13px] outline-none focus:border-ink"
+          />
+        </Field>
+        <Field label="Time zone" hint="Flows only send between 9am and 7pm here, and free times are shown in it.">
+          <select
+            value={timezone}
+            onChange={(e) => {
+              save.reset();
+              setTimezone(e.target.value);
+            }}
+            aria-label="Time zone"
+            className="h-9 w-full max-w-md rounded-[10px] border border-rule-strong bg-paper px-2 font-[inherit] text-[13px] outline-none focus:border-ink"
+          >
+            {TIME_ZONES.map((tz) => (
+              <option key={tz} value={tz}>
+                {tz.replaceAll('_', ' ')}
+              </option>
+            ))}
+          </select>
         </Field>
       </Card>
 

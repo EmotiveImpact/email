@@ -32,6 +32,7 @@ export function dashboardTenant(t: typeof tenants.$inferSelect, appName?: string
     replyTo: t.replyTo,
     status: t.status,
     pausedReason: t.pausedReason,
+    timezone: t.timezone,
     brand: t.brand,
   };
 }
@@ -175,12 +176,13 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.put('/tenants/:id/brand', async (c) => {
     const tenant = await tenantOf(c);
-    const brand = await json(c);
+    const { timezone, ...brand } = await json(c);
     const updated = await engine.upsertTenant(tenant.appId, tenant.externalId, {
       name: tenant.name,
       fromEmail: tenant.fromEmail ?? undefined,
       replyTo: tenant.replyTo ?? undefined,
       sesTenant: tenant.sesTenant ?? undefined,
+      ...(typeof timezone === 'string' && timezone && { timezone }),
       // An empty value clears that setting (a removed logo, say).
       brand: Object.fromEntries(Object.entries({ ...tenant.brand, ...brand }).filter(([, v]) => v !== '')) as never,
     });
@@ -213,7 +215,9 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.get('/tenants/:id/contacts/:contactId', async (c) => {
     const tenant = await tenantOf(c);
-    return c.json(await engine.contactDetail(tenant.id, c.req.param('contactId')));
+    const detail = await engine.contactDetail(tenant.id, c.req.param('contactId'));
+    const [rhythm, appointments] = await Promise.all([engine.rhythmFor(tenant.id, detail.contact.id), engine.appointmentsFor(tenant.id, detail.contact.id)]);
+    return c.json({ ...detail, rhythm, appointments });
   });
 
   r.get('/tenants/:id/segments', async (c) => c.json(await engine.listSegments((await tenantOf(c)).id)));
@@ -352,6 +356,45 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     const to = String((await json(c)).to ?? c.var.viewer.email ?? '');
     const message = await engine.sendTest(tenant.id, c.req.param('campaignId'), to);
     return c.json({ to: message.to }, 202);
+  });
+
+  // ---------------------------------------------------------------- diary and flows
+
+  /** The week ahead: free and booked time per day, and who is due back with nothing booked. */
+  r.get('/tenants/:id/diary', async (c) => {
+    const tenant = await tenantOf(c);
+    const [week, due] = await Promise.all([engine.diaryDays(tenant.id, 7), engine.dueSoon(tenant.id, 7)]);
+    return c.json({ ...week, dueCount: due.length, due: due.slice(0, 8) });
+  });
+
+  r.get('/tenants/:id/flows', async (c) => c.json(await engine.listFlows((await tenantOf(c)).id)));
+
+  r.get('/tenants/:id/flows/:flowId', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.flowDetail(tenant.id, c.req.param('flowId')));
+  });
+
+  r.put('/tenants/:id/flows/:flowId', async (c) => {
+    const tenant = await tenantOf(c);
+    const body = await json(c);
+    await engine.updateFlow(tenant.id, c.req.param('flowId'), {
+      ...(typeof body.subject === 'string' && { subject: body.subject }),
+      ...(body.content !== undefined && { content: body.content }),
+      ...(typeof body.settings === 'object' && body.settings !== null ? { settings: body.settings as Record<string, unknown> } : {}),
+      ...(typeof body.live === 'boolean' && { live: body.live }),
+    });
+    return c.json(await engine.flowDetail(tenant.id, c.req.param('flowId')));
+  });
+
+  r.post('/tenants/:id/flows/:flowId/reset', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.resetFlow(tenant.id, c.req.param('flowId'));
+    return c.json(await engine.flowDetail(tenant.id, c.req.param('flowId')));
+  });
+
+  r.post('/tenants/:id/flows/:flowId/preview', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.previewFlow(tenant.id, c.req.param('flowId'), (await json(c)).content));
   });
 
   return r;

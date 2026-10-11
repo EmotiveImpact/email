@@ -19,6 +19,8 @@ export type Tenant = {
   status: 'active' | 'paused';
   /** Why the reputation guard paused sending, when it did. */
   pausedReason: string | null;
+  /** IANA time zone; flows send in the business's daytime. */
+  timezone: string;
   brand: Brand;
 };
 
@@ -146,7 +148,7 @@ export const messagesQuery = (tenant: string, show: Show) =>
 export function useSaveBrand(tenant: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (brand: Brand) =>
+    mutationFn: (brand: Brand & { timezone?: string }) =>
       request<Tenant>(`/app/tenants/${encodeURIComponent(tenant)}/brand`, { method: 'PUT', body: JSON.stringify(brand) }),
     onSuccess: (updated) => client.setQueryData<Tenant[]>(['tenants'], (list) => list?.map((t) => (t.id === updated.id ? updated : t))),
   });
@@ -175,6 +177,30 @@ export type ContactDetail = {
   events: { id: string; name: string; properties: Record<string, unknown>; occurredAt: string }[];
   messages: { id: string; subject: string; stream: Message['stream']; status: MessageStatus; createdAt: string }[];
   suppressions: { reason: string; stream: 'all' | 'marketing'; scope: string; createdAt: string }[];
+  rhythm: Rhythm | null;
+  appointments: Appointment[];
+};
+
+export type Rhythm = {
+  contactId: string;
+  visits: number;
+  lastVisit: string | null;
+  gapDays: number | null;
+  dueAt: string | null;
+  bookedAhead: boolean;
+  nextVisit: string | null;
+  lastService: string | null;
+};
+
+export type Appointment = {
+  id: string;
+  externalId: string;
+  startsAt: string;
+  service: string | null;
+  staff: string | null;
+  price: number | null;
+  currency: string;
+  status: 'booked' | 'completed' | 'cancelled' | 'no_show';
 };
 
 export type Condition =
@@ -249,7 +275,19 @@ export type { Block, BlockType, EmailDoc } from '@platform/content/blocks';
 
 export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'sent';
 export type Audience = { total: number; noConsent: number; suppressed: number; eligible: number };
-export type CampaignStats = { total: number; pending: number; delivered: number; bounced: number; complained: number; opened: number; clicked: number; unsubscribed: number };
+export type CampaignStats = {
+  total: number;
+  pending: number;
+  delivered: number;
+  bounced: number;
+  complained: number;
+  opened: number;
+  clicked: number;
+  unsubscribed: number;
+  /** Bookings made within five days of this email, and their value in pence. */
+  bookings: number;
+  revenue: number;
+};
 
 export type Campaign = {
   id: string;
@@ -387,3 +425,82 @@ export const useRemoveDomain = (tenant: string) =>
   useSendingAction(tenant, (id: string) => request<void>(`/app/tenants/${tenant}/domains/${id}`, { method: 'DELETE' }));
 export const useResumeSending = (tenant: string) =>
   useSendingAction(tenant, (_: void) => request<Tenant>(`/app/tenants/${tenant}/resume`, { method: 'POST', body: '{}' }));
+
+// ---------------------------------------------------------------- diary and flows
+
+export type Diary = {
+  connected: boolean;
+  timezone: string;
+  days: { day: string; open: number; booked: number }[];
+  dueCount: number;
+  due: (Rhythm & { contact: Pick<Contact, 'id' | 'email' | 'firstName' | 'lastName'> })[];
+};
+
+export const diaryQuery = (tenant: string) =>
+  queryOptions({ queryKey: ['diary', tenant], queryFn: () => request<Diary>(`/app/tenants/${tenant}/diary`), refetchInterval: 60_000 });
+
+export type FlowKind = 'welcome' | 'rebook' | 'fill_slots' | 'winback';
+export type FlowStats = { sent: number; opened: number; clicked: number; bookings: number; revenue: number };
+
+export type Flow = {
+  id: string;
+  kind: FlowKind;
+  name: string;
+  description: string;
+  live: boolean;
+  subject: string;
+  content: EmailDoc;
+  settings: Record<string, number>;
+  fields: Record<string, { label: string; min: number; max: number }>;
+  problems: string[];
+  stats: FlowStats;
+  /** People it would email if it ran now. */
+  waiting: number;
+  updatedAt: string;
+};
+
+export type FlowDetail = Flow & {
+  recent: { email: string; firstName: string | null; lastName: string | null; reason: string; at: string; status: MessageStatus | null }[];
+  sender: { from: string; own: boolean };
+};
+
+export type FlowPatch = Partial<Pick<Flow, 'subject' | 'content' | 'settings' | 'live'>>;
+
+const flowPath = (tenant: string, id?: string) => `/app/tenants/${tenant}/flows${id ? `/${id}` : ''}`;
+
+export const flowsQuery = (tenant: string) => queryOptions({ queryKey: ['flows', tenant], queryFn: () => request<Flow[]>(flowPath(tenant)) });
+
+export const flowQuery = (tenant: string, id: string) =>
+  queryOptions({ queryKey: ['flow', tenant, id], queryFn: () => request<FlowDetail>(flowPath(tenant, id)) });
+
+export const previewFlow = (tenant: string, id: string, content: EmailDoc) =>
+  request<{ html: string; slotDay: string }>(`${flowPath(tenant, id)}/preview`, { method: 'POST', body: JSON.stringify({ content }) });
+
+function useFlowAction<I>(tenant: string, id: string, call: (input: I) => Promise<FlowDetail>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: call,
+    onSuccess: (fresh) => {
+      client.setQueryData(['flow', tenant, id], fresh);
+      void client.invalidateQueries({ queryKey: ['flows', tenant] });
+    },
+  });
+}
+
+export const useSaveFlow = (tenant: string, id: string) =>
+  useFlowAction(tenant, id, (patch: FlowPatch) => request<FlowDetail>(flowPath(tenant, id), { method: 'PUT', body: JSON.stringify(patch) }));
+
+export const useResetFlow = (tenant: string, id: string) =>
+  useFlowAction(tenant, id, (_: void) => request<FlowDetail>(`${flowPath(tenant, id)}/reset`, { method: 'POST', body: '{}' }));
+
+/** Switches a flow on or off from the list. */
+export function useToggleFlow(tenant: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, live }: { id: string; live: boolean }) => request<FlowDetail>(flowPath(tenant, id), { method: 'PUT', body: JSON.stringify({ live }) }),
+    onSuccess: (fresh) => {
+      client.setQueryData(['flow', tenant, fresh.id], fresh);
+      void client.invalidateQueries({ queryKey: ['flows', tenant] });
+    },
+  });
+}

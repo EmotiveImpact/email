@@ -108,6 +108,24 @@ export function createApi(options: ApiOptions) {
     });
   });
 
+  // The diary: bookings and free time from your booking system. Flows use them to time emails.
+  v1.put('/appointments', async (c) => {
+    const row = await engine.upsertAppointment(c.var.app, await body(c));
+    return c.json({
+      id: row.externalId,
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+      service: row.service,
+      staff: row.staff,
+      price: row.price,
+      currency: row.currency,
+      status: row.status,
+      bookedAt: row.bookedAt,
+    });
+  });
+
+  v1.put('/availability', async (c) => c.json(await engine.setAvailability(c.var.app, await body(c))));
+
   v1.post('/events', async (c) => {
     const event = await engine.recordEvent(c.var.app, (await body(c)) as never);
     return c.json({ id: event.id, name: event.name, matchedContact: Boolean(event.contactId) }, 202);
@@ -152,7 +170,7 @@ export function createApi(options: ApiOptions) {
   v1.post('/studio/sessions', async (c) => {
     const input = (await body(c)) as { page?: unknown };
     const { launchToken, expiresAt } = await engine.createStudioSession(c.var.app, input);
-    const page = input.page === 'audience' ? 'audience' : 'campaigns';
+    const page = input.page === 'audience' || input.page === 'flows' ? input.page : 'campaigns';
     return c.json({ url: `${options.webOrigin}/embed?page=${page}#token=${launchToken}`, expiresAt }, 201);
   });
 
@@ -207,6 +225,6 @@ export function createApi(options: ApiOptions) {
 }
 
 function publicTenant(t: typeof tenants.$inferSelect) {
-  return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, pausedReason: t.pausedReason, brand: t.brand };
+  return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, pausedReason: t.pausedReason, timezone: t.timezone, brand: t.brand };
 }
 export { createAuth } from './auth.ts';
