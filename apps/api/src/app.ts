@@ -232,6 +232,11 @@ export function createApi(options: ApiOptions) {
     });
   });
 
+  // ------------------------------------------------------------------ Stripe
+
+  /** Stripe's webhooks. The signature is checked against the raw body, so read it as text. */
+  api.post('/billing/stripe', async (c) => c.json(await engine.stripeWebhook(await c.req.text(), c.req.header('stripe-signature'))));
+
   // ------------------------------------------------------------------ sign-in and the web app
 
   api.on(['GET', 'POST'], '/auth/*', (c) => options.auth.handler(c.req.raw));

@@ -37,6 +37,8 @@ export type CampaignDeps = {
   diary: ReturnType<typeof createDiary>;
   /** Free times as booking links, for the free-times block (see flows.ts). */
   upcomingSlots: (tenant: typeof tenants.$inferSelect) => Promise<SlotLink[]>;
+  /** What the business's plan stops from going out (see billing.ts). Null when nothing does. */
+  sendingProblem: (tenantId: string, count: number) => Promise<string | null>;
 };
 
 /** Made-up values for tests and previews, so every merge tag shows something sensible. */
@@ -67,7 +69,7 @@ export function parseContent(raw: unknown) {
   return result.data;
 }
 
-export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomingSlots }: CampaignDeps) {
+export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomingSlots, sendingProblem }: CampaignDeps) {
   async function tenantById(tenantId: string) {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) throw new PlatformError('not_found', 'No such business.', 404);
@@ -164,6 +166,10 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     if (tenant.status === 'paused') found.push('Sending is paused for this business.');
     const audience = await audienceFor(campaign.tenantId, campaign.segmentId);
     if (audience.eligible === 0) found.push('Nobody in this audience has said yes to news.');
+    else {
+      const limit = await sendingProblem(campaign.tenantId, audience.eligible);
+      if (limit) found.push(limit);
+    }
     return { problems: found, audience };
   }
 
@@ -176,7 +182,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     const when = at && at.getTime() > Date.now() ? at : new Date();
     const [row] = await db
       .update(campaigns)
-      .set({ status: 'scheduled', scheduledAt: when, updatedAt: new Date() })
+      .set({ status: 'scheduled', scheduledAt: when, problem: null, updatedAt: new Date() })
       .where(and(eq(campaigns.id, id), eq(campaigns.status, 'draft')))
       .returning();
     if (!row) throw new PlatformError('not_editable', 'This campaign changed while you were scheduling it.', 409);
@@ -230,6 +236,13 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
           sql`not exists (select 1 from ${suppressions} s where s.email = ${contacts.email} and s.scope in (${campaign.tenantId}, 'global'))`,
         ),
       );
+
+    // Checked again at send time: the plan or the list may have changed since it was scheduled.
+    const limit = await sendingProblem(campaign.tenantId, people.length);
+    if (limit) {
+      await db.update(campaigns).set({ status: 'draft', scheduledAt: null, problem: `Not sent. ${limit}`, updatedAt: new Date() }).where(eq(campaigns.id, campaignId));
+      return;
+    }
 
     const { from, replyTo } = await senderFor(tenant);
     const start = Date.now();

@@ -17,6 +17,8 @@ const PAGES = [
   { label: 'Sending', to: '/$tenant/sending' },
   { label: 'Sending domain', to: '/$tenant/settings/domain' },
   { label: 'Appearance', to: '/$tenant/settings/appearance' },
+  { label: 'Billing', to: '/$tenant/billing' },
+  { label: 'Import clients', to: '/$tenant/audience', search: { import: 'clients' as const } },
   { label: 'Developers', to: '/$tenant/developers' },
 ] as const;
 

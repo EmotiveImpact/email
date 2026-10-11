@@ -5,7 +5,7 @@
  * The embedded studio uses the same endpoints with a studio session token instead of a sign-in
  * cookie. That session reaches one business only, and none of the account-level settings.
  */
-import { apps, ASSET_KINDS, eq, members, messages, tenants, type AssetKind, type Db } from '@platform/db';
+import { and, apps, ASSET_KINDS, eq, members, messages, PLAN_IDS, tenants, type AssetKind, type Db, type PlanId } from '@platform/db';
 import { MAX_ASSET_BYTES, parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -77,7 +77,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     if (header?.startsWith('Studio ')) {
       const studio = await engine.studioViewer(header.slice(7).trim());
       if (!studio) throw new PlatformError('studio_expired', 'This studio session has ended. Open it again from your app.', 401);
-      const account = c.req.path.match(/\/app\/(accounts|studio)/) || (c.req.path.endsWith('/tenants') && c.req.method !== 'GET') || c.req.path.endsWith('/brand') || c.req.path.endsWith('/resume');
+      const account = c.req.path.match(/\/app\/(accounts|studio)/) || (c.req.path.endsWith('/tenants') && c.req.method !== 'GET') || c.req.path.endsWith('/brand') || c.req.path.endsWith('/resume') || c.req.path.includes('/billing');
       if (account) throw new PlatformError('forbidden', 'The studio cannot change account settings.', 403);
       c.set('studio', studio);
       c.set('viewer', studio.user);
@@ -150,11 +150,14 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     const body = await json(c);
     const name = String(body.name ?? '').trim();
     if (!name) throw new PlatformError('invalid_request', 'Give the business a name.', 422);
-    const [direct] = await db.select().from(apps).where(eq(apps.accountId, c.var.accountId)).orderBy(apps.createdAt);
-    const app = direct ?? (await engine.createApp(c.var.accountId, 'Direct'));
+    const [direct] = await db.select().from(apps).where(and(eq(apps.accountId, c.var.accountId), eq(apps.direct, true))).orderBy(apps.createdAt);
+    const app = direct ?? (await engine.createApp(c.var.accountId, 'Direct', { direct: true }));
+    const given = (key: string) => (typeof body[key] === 'string' && body[key].trim() ? body[key].trim() : undefined);
     const tenant = await engine.upsertTenant(app.id, slugify(name, crypto.randomUUID()), {
       name,
-      fromEmail: typeof body.fromEmail === 'string' && body.fromEmail ? body.fromEmail : undefined,
+      fromEmail: given('fromEmail'),
+      timezone: given('timezone'),
+      brand: { address: given('address'), bookingUrl: given('bookingUrl'), accent: given('accent') },
     });
     await engine.ensureStarterSegments(tenant.id);
     return c.json(dashboardTenant(tenant, app.name), 201);
@@ -457,6 +460,44 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   r.put('/tenants/:id/designs/:assetId', designLimit, async (c) => {
     const tenant = await tenantOf(c);
     return c.json(await engine.updateDesign(tenant.id, c.req.param('assetId'), await json(c)));
+  });
+
+  // ---------------------------------------------------------------- getting started
+
+  r.get('/tenants/:id/getting-started', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.gettingStarted(tenant.id));
+  });
+
+  r.post('/tenants/:id/import/clients', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.importClients(tenant.id, await json(c)));
+  });
+
+  r.post('/tenants/:id/import/visits', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.importVisits(tenant.id, await json(c)));
+  });
+
+  // ---------------------------------------------------------------- billing
+
+  r.get('/tenants/:id/billing', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.billingSummary(tenant.id));
+  });
+
+  /** Pick a plan. Returns where to pay (Stripe Checkout or its portal), or no url when it is done. */
+  r.post('/tenants/:id/billing/plan', async (c) => {
+    const tenant = await tenantOf(c);
+    const plan = String((await json(c)).plan ?? '');
+    if (!PLAN_IDS.includes(plan as PlanId)) throw new PlatformError('invalid_request', 'Choose one of the plans.', 422);
+    const returnUrl = `${webOrigin}/${tenant.id}/billing`;
+    return c.json(await engine.choosePlan(tenant.id, plan as PlanId, { email: c.var.viewer.email ?? undefined, returnUrl }));
+  });
+
+  r.post('/tenants/:id/billing/portal', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json({ url: await engine.billingPortal(tenant.id, `${webOrigin}/${tenant.id}/billing`) });
   });
 
   return r;

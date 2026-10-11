@@ -1,15 +1,16 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { ArrowRight, Plus, Search, X } from 'lucide-react';
+import { ArrowRight, FileUp, Plus, Search, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { contactQuery, contactsQuery, segmentsQuery, useAddContact, type Consent, type Contact, type Rhythm } from '../api.ts';
 import { money } from '../components/email-editor.tsx';
+import { Importer, type ImportKind } from '../components/importer.tsx';
 import { useTenant } from '../components/Shell.tsx';
 import { Button, Card, Notice, PageTitle, Segmented, StatusBadge, cx } from '../components/ui.tsx';
 import { describeSegment, eventLabel } from '../segments.ts';
 import { Field } from './SignIn.tsx';
 
-export type AudienceSearch = { view?: 'people' | 'segments'; q?: string; consent?: Consent; segment?: string; page?: number; contact?: string };
+export type AudienceSearch = { view?: 'people' | 'segments'; q?: string; consent?: Consent; segment?: string; page?: number; contact?: string; import?: ImportKind };
 
 const PAGE = 50;
 const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
@@ -71,18 +72,24 @@ export function Audience() {
         title="Your clients"
         subtitle="Everyone who has booked or signed up, what they did, and whether they want news."
         actions={
-          <Segmented
-            label="View"
-            value={view}
-            onChange={(v) => set({ view: v === 'people' ? undefined : v, page: undefined })}
-            options={[
-              { value: 'people', label: 'People' },
-              { value: 'segments', label: 'Segments' },
-            ]}
-          />
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => set({ import: 'clients' })}>
+              <FileUp size={15} /> Import
+            </Button>
+            <Segmented
+              label="View"
+              value={view}
+              onChange={(v) => set({ view: v === 'people' ? undefined : v, page: undefined })}
+              options={[
+                { value: 'people', label: 'People' },
+                { value: 'segments', label: 'Segments' },
+              ]}
+            />
+          </div>
         }
       />
       {view === 'people' ? <People search={search} set={set} /> : <Segments />}
+      {search.import && <ImportPanel tenant={tenant.id} kind={search.import} onKind={(k) => set({ import: k })} onClose={() => set({ import: undefined })} />}
       {search.contact && <ContactPanel tenant={tenant.id} contact={search.contact} onClose={() => set({ contact: undefined })} />}
     </>
   );
@@ -477,5 +484,36 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
       <h3 className="display m-0 mb-1.5 text-[15px]">{title}</h3>
       {children.length === 0 ? <p className="m-0 text-[13px] text-muted">{empty}</p> : <ul className="m-0 list-none p-0 text-[13px]">{children}</ul>}
     </section>
+  );
+}
+
+/** Import from a spreadsheet: clients, or past visits for each client's rhythm. */
+function ImportPanel({ tenant, kind, onKind, onClose }: { tenant: string; kind: ImportKind; onKind: (k: ImportKind) => void; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
+      <div role="dialog" aria-label="Import" className="flex h-full w-full max-w-[600px] flex-col gap-5 overflow-y-auto bg-paper px-6 py-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="display m-0 text-[22px]">Import from a spreadsheet</h2>
+          <button type="button" aria-label="Close" onClick={onClose} className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted hover:bg-soft">
+            <X size={16} />
+          </button>
+        </div>
+        <Segmented
+          label="What"
+          value={kind}
+          onChange={onKind}
+          options={[
+            { value: 'clients', label: 'Clients' },
+            { value: 'visits', label: 'Past visits' },
+          ]}
+        />
+        <Importer key={kind} tenant={tenant} kind={kind} />
+      </div>
+    </div>
   );
 }

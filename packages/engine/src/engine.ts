@@ -23,12 +23,14 @@ import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
 import { createAssets } from './assets.ts';
 import { createAudience } from './audience.ts';
+import { createBilling, SamplePaymentProvider, type PaymentProvider } from './billing.ts';
 import { createCampaigns } from './campaigns.ts';
 import { createDiary } from './diary.ts';
 import { createDomains } from './domains.ts';
 import { createFlows } from './flows.ts';
 import { PgAssetStore, SampleImageGenerator, type AssetStore, type ImageGenerator } from './images.ts';
 import { createInsights } from './insights.ts';
+import { createOnboarding } from './onboarding.ts';
 import { LocalProvisioner, type Provisioner } from './provisioning.ts';
 import { createStudio } from './studio.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
@@ -231,6 +233,8 @@ export function createEngine(deps: {
   assetStore?: AssetStore;
   /** Makes pictures from prompts. Default: soft sample pictures, no provider needed. */
   imageGenerator?: ImageGenerator;
+  /** Takes payment for plans. Default: the sample provider (no money). Null switches payments off. */
+  paymentProvider?: PaymentProvider | null;
 }) {
   const { db, transport, queue, config } = deps;
   const doFetch = deps.fetch ?? fetch;
@@ -245,15 +249,17 @@ export function createEngine(deps: {
   });
   const sendRate = config.sendRate ?? 10;
   const diary = createDiary(db, getTenant);
-  const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary });
+  const billingApi = createBilling({ db, provider: deps.paymentProvider === undefined ? new SamplePaymentProvider() : deps.paymentProvider });
+  const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, emailsLeft: billingApi.emailsLeft });
   const assetsApi = createAssets({
     db,
     store: deps.assetStore ?? new PgAssetStore(db, config.publicUrl),
     generator: deps.imageGenerator ?? new SampleImageGenerator(),
     imagesPerDay: config.imagesPerDay ?? 40,
   });
+  const onboardingApi = createOnboarding({ db, diary });
   const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows });
-  const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots });
+  const campaignsApi = createCampaigns({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, upcomingSlots: flowsApi.upcomingSlots, sendingProblem: billingApi.sendingProblem });
 
   // ---------------------------------------------------------------- accounts, apps and keys
 
@@ -268,8 +274,8 @@ export function createEngine(deps: {
   }
 
   /** Adds an app (a product that sends) to an existing account. */
-  async function createApp(accountId: string, name: string) {
-    const [row] = await db.insert(apps).values({ id: newId('app'), accountId, name }).returning();
+  async function createApp(accountId: string, name: string, options: { direct?: boolean } = {}) {
+    const [row] = await db.insert(apps).values({ id: newId('app'), accountId, name, direct: options.direct ?? false }).returning();
     return row!;
   }
 
@@ -850,6 +856,8 @@ export function createEngine(deps: {
     dailyCounts,
     ...insights,
     ...assetsApi,
+    ...billingApi,
+    ...onboardingApi,
     runJob,
   };
 }

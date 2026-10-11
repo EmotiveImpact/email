@@ -1,7 +1,7 @@
 /** Test helpers: a fresh, migrated Postgres database and an engine with in-memory queue and transport. */
 import { createDb, sql } from '@platform/db';
 import { migrateDb } from '@platform/db/migrate';
-import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type Provisioner, type Transport } from './index.ts';
+import { createEngine, LocalProvisioner, LogTransport, MemoryQueue, type EngineConfig, type ImageGenerator, type PaymentProvider, type Provisioner, type Transport } from './index.ts';
 
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://platform:platform@localhost:5432/platform_test';
@@ -15,6 +15,8 @@ export async function setup(
     provisioner?: Provisioner;
     resolveTxt?: (name: string) => Promise<string[][]>;
     imageGenerator?: ImageGenerator;
+    /** Undefined: the sample provider. Null: payments off. */
+    paymentProvider?: PaymentProvider | null;
   } = {},
 ) {
   const { db, pool } = createDb(TEST_DATABASE_URL);
@@ -30,6 +32,7 @@ export async function setup(
     provisioner: options.provisioner ?? new LocalProvisioner(),
     resolveTxt: options.resolveTxt ?? (async () => []),
     imageGenerator: options.imageGenerator,
+    paymentProvider: options.paymentProvider,
     config: { publicUrl: 'https://api.test', signingSecret: 'test-secret', defaultFrom: 'hello@platform.test', ...options.config },
   });
   const { accountId, appId } = await engine.createAccountWithApp({ account: 'Emotive Impact', app: 'Saleane' });

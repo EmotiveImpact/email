@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, ChevronDown, CodeXml, Globe, House, Image as ImageIcon, Megaphone, Palette, Plus, Search, Send, Sparkles, SquarePen, type LucideIcon, Users, Workflow, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, ChevronDown, CodeXml, CreditCard, Globe, House, Image as ImageIcon, Megaphone, Palette, Plus, Search, Send, Sparkles, SquarePen, type LucideIcon, Users, Workflow, X } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { auth, meQuery, tenantsQuery, useCreateCampaign, type Tenant } from '../api.ts';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -27,6 +27,7 @@ const BOTTOM: Area[] = [
   { to: '/$tenant/settings/domain', label: 'Sending domain', icon: Globe },
   { to: '/$tenant/developers', label: 'Developers', icon: CodeXml },
   { to: '/$tenant/settings/appearance', label: 'Appearance', icon: Palette },
+  { to: '/$tenant/billing', label: 'Billing', icon: CreditCard },
 ];
 
 /** Lets a page (Appearance) show a brand across the whole app before it is saved. */
@@ -335,7 +336,7 @@ function NotFound({ tenants }: { tenants: Tenant[] }) {
   );
 }
 
-function readFlag(key: string, fallback: boolean) {
+export function readFlag(key: string, fallback: boolean) {
   try {
     const value = localStorage.getItem(key);
     return value === null ? fallback : value === '1';
@@ -344,7 +345,7 @@ function readFlag(key: string, fallback: boolean) {
   }
 }
 
-function writeFlag(key: string, value: boolean) {
+export function writeFlag(key: string, value: boolean) {
   try {
     localStorage.setItem(key, value ? '1' : '0');
   } catch {

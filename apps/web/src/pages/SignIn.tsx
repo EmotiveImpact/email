@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { auth, ApiError, meQuery } from '../api.ts';
 import { Button, Notice } from '../components/ui.tsx';
@@ -32,6 +32,7 @@ export function Field({ label, ...props }: { label: string } & React.ComponentPr
 }
 
 export function SignIn() {
+  const { reset } = useSearch({ from: '/sign-in' });
   const [mode, setMode] = useState<'in' | 'up'>('in');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +67,12 @@ export function SignIn() {
         {mode === 'up' && <Field label="Your name" name="name" autoComplete="name" required />}
         <Field label="Email" name="email" type="email" autoComplete="email" required />
         <Field label="Password" name="password" type="password" autoComplete={mode === 'in' ? 'current-password' : 'new-password'} minLength={10} required />
+        {mode === 'in' && (
+          <Link to="/reset-password" className="-mt-2 self-end text-xs text-muted underline">
+            Forgotten your password?
+          </Link>
+        )}
+        {reset && mode === 'in' && !error && <Notice>Your password is changed. Sign in with the new one.</Notice>}
         {error && <Notice tone="bad">{error}</Notice>}
         <Button type="submit" disabled={busy} className="mt-1 h-10">
           {busy ? 'One moment…' : mode === 'in' ? 'Sign in' : 'Create login'}
@@ -88,45 +95,64 @@ function friendly(err: ApiError) {
   return err.message;
 }
 
-/** First run (or "Add a business"): makes an account if the person has none, then a business. */
-export function Setup() {
-  const { data: me } = useQuery(meQuery);
-  const [error, setError] = useState<string | null>(null);
+/** Resets a forgotten password: asks for the email, or takes the new password from the emailed link. */
+export function ResetPassword() {
+  const token = new URLSearchParams(window.location.search).get('token');
+  const linkError = new URLSearchParams(window.location.search).get('error');
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(linkError ? 'That link has expired or was already used. Ask for a new one.' : null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
-  const client = useQueryClient();
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const business = String(form.get('business')).trim();
     setBusy(true);
     setError(null);
     try {
-      if (!me?.accountId) await auth.createAccount(business);
-      const tenant = await auth.createTenant(business, String(form.get('fromEmail') || '') || undefined);
-      await client.invalidateQueries();
-      await navigate({ to: '/$tenant', params: { tenant: tenant.id } });
+      if (token && !linkError) {
+        await auth.resetPassword(token, String(form.get('password')));
+        await navigate({ to: '/sign-in', search: { reset: 1 } });
+      } else {
+        await auth.requestReset(String(form.get('email')));
+        setSent(true);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(err instanceof ApiError && err.code === 'INVALID_TOKEN' ? 'That link has expired or was already used. Ask for a new one.' : err instanceof ApiError ? friendly(err) : 'Something went wrong.');
     } finally {
       setBusy(false);
     }
   }
 
+  if (token && !linkError) {
+    return (
+      <Welcome title="Choose a new password" subtitle="Use at least 10 characters. You will be signed out on your other devices.">
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="New password" name="password" type="password" autoComplete="new-password" minLength={10} required />
+          {error && <Notice tone="bad">{error}</Notice>}
+          <Button type="submit" disabled={busy} className="mt-1 h-10">
+            {busy ? 'One moment…' : 'Save password'}
+          </Button>
+        </form>
+      </Welcome>
+    );
+  }
   return (
-    <Welcome
-      title={me?.accountId ? 'Add a business' : 'Tell us about your business'}
-      subtitle="Each business gets its own clients, look and sending. You can connect its booking app afterwards."
-    >
-      <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Business name" name="business" placeholder="Linden Studio" required />
-        <Field label="Send from (optional)" name="fromEmail" type="email" placeholder="hello@lindenstudio.co.uk" />
-        {error && <Notice tone="bad">{error}</Notice>}
-        <Button type="submit" disabled={busy} className="mt-1 h-10">
-          {busy ? 'Setting up…' : 'Continue'}
-        </Button>
-      </form>
+    <Welcome title="Forgotten your password?" subtitle={sent ? 'If there is a login for that email, a link to choose a new password is on its way. It works for an hour.' : 'We will email you a link to choose a new one.'}>
+      {!sent && (
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="Email" name="email" type="email" autoComplete="email" required />
+          {error && <Notice tone="bad">{error}</Notice>}
+          <Button type="submit" disabled={busy} className="mt-1 h-10">
+            {busy ? 'One moment…' : 'Email me a link'}
+          </Button>
+        </form>
+      )}
+      <p className="mt-5 mb-0 text-center text-[13px] text-muted">
+        <Link to="/sign-in" className="font-semibold text-ink underline">
+          Back to sign in
+        </Link>
+      </p>
     </Welcome>
   );
 }
