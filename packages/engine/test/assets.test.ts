@@ -91,7 +91,7 @@ describe('generating pictures', () => {
     expect(made[0]).toMatchObject({ kind: 'generated', prompt: 'Dried flowers on a counter', style: 'brand', provider: 'sample', width: 720, height: 480 });
     expect(made[0]!.url).not.toBe(made[1]!.url);
 
-    expect(await engine.imageSettings(tenant.id)).toMatchObject({ provider: 'sample', real: false, perDay: 3, left: 1 });
+    expect(await engine.imageSettings(tenant.id)).toMatchObject({ provider: 'sample', real: false, per: 'day', limit: 3, left: 1 });
     await expect(engine.generateImages(tenant.id, { prompt: 'Another one', count: 2 })).rejects.toThrow('1 more picture today');
     await expect(engine.generateImages(tenant.id, { prompt: 'no' })).rejects.toThrow('Describe the picture');
   });

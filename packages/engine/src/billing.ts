@@ -7,7 +7,7 @@
  * provider switches plans straight away so the whole flow can be tried locally.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { and, apps, contacts, eq, gte, messages, sql, subscriptions, tenants, type Db, type PlanId } from '@platform/db';
+import { and, apps, assets, contacts, eq, gte, messages, sql, subscriptions, tenants, type Db, type PlanId } from '@platform/db';
 import { PlatformError } from './types.ts';
 
 export type Plan = {
@@ -19,17 +19,19 @@ export type Plan = {
   contacts: number;
   /** Marketing emails (campaigns and flows) a month. Booking confirmations do not count. */
   emails: number;
+  /** Generated pictures a month. Each costs us about 3p, so they are counted (uploads are free). */
+  pictures: number;
   /** One line for the plan card. */
   pitch: string;
 };
 
 /** Placeholder prices to revise (D84). Allowance is twelve emails a person a month, about three a week. */
 export const PLANS: Plan[] = [
-  { id: 'free', name: 'Free', price: 0, contacts: 250, emails: 2_500, pitch: 'Try every feature with your first clients.' },
-  { id: 'starter', name: 'Starter', price: 1500, contacts: 1_000, emails: 12_000, pitch: 'For a solo practitioner or a small studio.' },
-  { id: 'growth', name: 'Growth', price: 2900, contacts: 2_500, emails: 30_000, pitch: 'For a busy salon with a full team.' },
-  { id: 'studio', name: 'Studio', price: 4900, contacts: 5_000, emails: 60_000, pitch: 'For established businesses with a big client list.' },
-  { id: 'scale', name: 'Scale', price: 7900, contacts: 10_000, emails: 120_000, pitch: 'For several sites or a large regular base.' },
+  { id: 'free', name: 'Free', price: 0, contacts: 250, emails: 2_500, pictures: 10, pitch: 'Try every feature with your first clients.' },
+  { id: 'starter', name: 'Starter', price: 1500, contacts: 1_000, emails: 12_000, pictures: 30, pitch: 'For a solo practitioner or a small studio.' },
+  { id: 'growth', name: 'Growth', price: 2900, contacts: 2_500, emails: 30_000, pictures: 60, pitch: 'For a busy salon with a full team.' },
+  { id: 'studio', name: 'Studio', price: 4900, contacts: 5_000, emails: 60_000, pictures: 100, pitch: 'For established businesses with a big client list.' },
+  { id: 'scale', name: 'Scale', price: 7900, contacts: 10_000, emails: 120_000, pictures: 150, pitch: 'For several sites or a large regular base.' },
 ];
 
 export const planById = (id: PlanId) => PLANS.find((p) => p.id === id) ?? PLANS[0]!;
@@ -368,6 +370,22 @@ export function createBilling({ db, provider }: { db: Db; provider: PaymentProvi
     return { handled: true };
   }
 
+  async function generatedSince(tenantId: string, since: Date) {
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(assets)
+      .where(and(eq(assets.tenantId, tenantId), eq(assets.kind, 'generated'), gte(assets.createdAt, since)));
+    return row?.n ?? 0;
+  }
+
+  /** Generated pictures left this billing month, or null when an app pays for the business. */
+  async function picturesLeft(tenantId: string, now = new Date()) {
+    const a = await allowance(tenantId, now);
+    if (a.billed === 'app') return null;
+    const used = await generatedSince(tenantId, a.periodStart);
+    return { limit: a.plan.pictures, used, left: Math.max(0, a.plan.pictures - used), resets: a.periodEnd };
+  }
+
   async function billingSummary(tenantId: string) {
     const a = await allowance(tenantId);
     return {
@@ -378,10 +396,10 @@ export function createBilling({ db, provider }: { db: Db; provider: PaymentProvi
       periodStart: a.periodStart.toISOString(),
       periodEnd: a.periodEnd.toISOString(),
       cancelAtPeriodEnd: a.cancelAtPeriodEnd,
-      usage: { contacts: a.contacts, emails: a.emails },
+      usage: { contacts: a.contacts, emails: a.emails, pictures: await generatedSince(tenantId, a.periodStart) },
       plans: PLANS,
     };
   }
 
-  return { allowance, sendingProblem, emailsLeft, choosePlan, billingPortal, stripeWebhook, billingSummary };
+  return { allowance, sendingProblem, emailsLeft, picturesLeft, choosePlan, billingPortal, stripeWebhook, billingSummary };
 }

@@ -34,3 +34,35 @@ jobs:
         env:
           TEST_DATABASE_URL: postgres://platform:platform@localhost:5432/platform_test
       - run: pnpm --filter @platform/web build
+
+  image:
+    # The production image must keep building and starting; only the deploy workflow pushes it.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U platform"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t platform:ci .
+      - name: Start the image and check it answers
+        run: |
+          docker run -d --name app --network host -e MIGRATE_ON_START=true \
+            -e DATABASE_URL=postgres://platform:platform@localhost:5432/platform \
+            -e AUTH_SECRET=ci-only-auth-secret-0123456789abcdef -e SIGNING_SECRET=ci-only-signing-secret \
+            -e WEB_ORIGIN=http://localhost:8787 platform:ci
+          for i in $(seq 1 40); do curl -fsS localhost:8787/ready && break; sleep 1; done
+          curl -fsS localhost:8787/ready
+          curl -fsS localhost:8787/ | grep -q 'id="root"'
+          curl -fsSI localhost:8787/ | grep -i content-security-policy
+      - if: always()
+        run: docker logs app

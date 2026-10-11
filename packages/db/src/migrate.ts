@@ -8,11 +8,22 @@ export function migrateDb(db: Db) {
   return migrate(db, { migrationsFolder });
 }
 
+/** Any number; it only has to be the same in every copy of the app. */
+const MIGRATION_LOCK = 727_274_001;
+
+/**
+ * Applies migrations while holding a Postgres advisory lock, so several copies of the app starting
+ * at once (a rolling deploy) take turns instead of racing.
+ */
 export async function runMigrations(url: string): Promise<void> {
   const { db, pool } = createDb(url);
+  const lock = await pool.connect();
   try {
+    await lock.query('select pg_advisory_lock($1)', [MIGRATION_LOCK]);
     await migrate(db, { migrationsFolder });
   } finally {
+    await lock.query('select pg_advisory_unlock($1)', [MIGRATION_LOCK]).catch(() => {});
+    lock.release();
     await pool.end();
   }
 }

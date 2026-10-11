@@ -1,4 +1,4 @@
-import { and, eq, messages, tenants, type Db } from '@platform/db';
+import { and, eq, messages, sql, tenants, type Db } from '@platform/db';
 import {
   isSnsUrl,
   PlatformError,
@@ -61,7 +61,16 @@ export function createApi(options: ApiOptions) {
     }
   };
 
+  // Liveness: the process answers. Readiness: it can reach the database too.
   api.get('/health', (c) => c.json({ ok: true }));
+  api.get('/ready', async (c) => {
+    try {
+      await db.execute(sql`select 1`);
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ ok: false }, 503);
+    }
+  });
 
   // ------------------------------------------------------------------ public API, /v1
 

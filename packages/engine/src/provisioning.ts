@@ -53,15 +53,35 @@ export class SesProvisioner implements Provisioner {
   readonly name = 'ses';
 
   constructor(
-    private readonly client: SESv2Client,
-    /** Needed to link identities to SES tenants; without it, tenants are created but not linked. */
-    private readonly identityArn?: (domain: string) => string,
+    private readonly client: Pick<SESv2Client, 'send'>,
+    /**
+     * ARNs SES needs to link resources to tenants. A tenant can only send with an identity and a
+     * configuration set linked to it, so every tenant gets the platform's configuration set and its
+     * own sending address (used until the business verifies a domain). Without the account id,
+     * tenants are created but cannot send.
+     */
+    private readonly arns: { identity: (domain: string) => string; everyTenant: string[] } | null = null,
   ) {}
 
-  static fromEnv(env: { AWS_REGION?: string; AWS_ACCOUNT_ID?: string }) {
+  static fromEnv(env: { AWS_REGION?: string; AWS_ACCOUNT_ID?: string; SES_CONFIGURATION_SET?: string; DEFAULT_FROM?: string }) {
     const region = env.AWS_REGION ?? 'eu-west-2';
     const account = env.AWS_ACCOUNT_ID;
-    return new SesProvisioner(new SESv2Client({ region }), account ? (d) => `arn:aws:ses:${region}:${account}:identity/${d}` : undefined);
+    if (!account) return new SesProvisioner(new SESv2Client({ region }));
+    const identity = (d: string) => `arn:aws:ses:${region}:${account}:identity/${d}`;
+    const platformDomain = env.DEFAULT_FROM?.split('@')[1]?.replace(/>.*$/, '').trim().toLowerCase();
+    const everyTenant = [
+      ...(env.SES_CONFIGURATION_SET ? [`arn:aws:ses:${region}:${account}:configuration-set/${env.SES_CONFIGURATION_SET}`] : []),
+      ...(platformDomain ? [identity(platformDomain)] : []),
+    ];
+    return new SesProvisioner(new SESv2Client({ region }), { identity, everyTenant });
+  }
+
+  private async link(tenant: string, resourceArn: string) {
+    try {
+      await this.client.send(new CreateTenantResourceAssociationCommand({ TenantName: tenant, ResourceArn: resourceArn }));
+    } catch (error) {
+      if (!(error instanceof AlreadyExistsException)) throw error;
+    }
   }
 
   async ensureTenant(tenant: string) {
@@ -70,6 +90,7 @@ export class SesProvisioner implements Provisioner {
     } catch (error) {
       if (!(error instanceof AlreadyExistsException)) throw error;
     }
+    for (const arn of this.arns?.everyTenant ?? []) await this.link(tenant, arn);
   }
 
   async ensureDomain(domain: string, tenant: string | null) {
@@ -82,13 +103,7 @@ export class SesProvisioner implements Provisioner {
       const existing = await this.client.send(new GetEmailIdentityCommand({ EmailIdentity: domain }));
       tokens = existing.DkimAttributes?.Tokens ?? [];
     }
-    if (tenant && this.identityArn) {
-      try {
-        await this.client.send(new CreateTenantResourceAssociationCommand({ TenantName: tenant, ResourceArn: this.identityArn(domain) }));
-      } catch (error) {
-        if (!(error instanceof AlreadyExistsException)) throw error;
-      }
-    }
+    if (tenant && this.arns) await this.link(tenant, this.arns.identity(domain));
     return dkimRecords(domain, tokens);
   }
 

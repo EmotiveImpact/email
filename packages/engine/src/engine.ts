@@ -256,6 +256,7 @@ export function createEngine(deps: {
     store: deps.assetStore ?? new PgAssetStore(db, config.publicUrl),
     generator: deps.imageGenerator ?? new SampleImageGenerator(),
     imagesPerDay: config.imagesPerDay ?? 40,
+    picturesLeft: billingApi.picturesLeft,
   });
   const onboardingApi = createOnboarding({ db, diary });
   const insights = createInsights({ db, diary, ensureFlows: flowsApi.ensureFlows });
