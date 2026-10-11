@@ -129,6 +129,8 @@ export const apps = pgTable('apps', {
   id: text('id').primaryKey(),
   accountId: text('account_id').notNull().references(() => accounts.id),
   name: text('name').notNull(),
+  /** Web origins allowed to embed the studio (for example https://app.saleane.com). */
+  embedOrigins: jsonb('embed_origins').$type<string[]>().notNull().default([]),
   createdAt: created(),
 });
 
@@ -383,4 +385,41 @@ export const campaigns = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('campaigns_tenant').on(t.tenantId, t.createdAt)],
+);
+
+/** How the studio looks inside a host app. The host's own colours and type, so it feels native. */
+export type StudioTheme = {
+  accent?: string;
+  headingFont?: 'cal-sans' | 'geist' | 'serif';
+  /** Page background behind the cards, such as Saleane's ivory. */
+  canvas?: string;
+};
+
+/**
+ * A host app opening the studio for one of its users. The app asks for a launch token (short-lived,
+ * single use) from its server; the studio swaps it for a session token held only in the browser tab.
+ * Only hashes of either token are stored.
+ */
+export const studioSessions = pgTable(
+  'studio_sessions',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => apps.id),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    /** The person in the host app: its own id for them, plus name and email for display and test sends. */
+    userRef: text('user_ref').notNull(),
+    userName: text('user_name'),
+    userEmail: text('user_email'),
+    origin: text('origin').notNull(),
+    theme: jsonb('theme').$type<StudioTheme>().notNull().default({}),
+    launchHash: text('launch_hash').notNull().unique(),
+    launchExpiresAt: timestamp('launch_expires_at', { withTimezone: true }).notNull(),
+    sessionHash: text('session_hash').unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdAt: created(),
+  },
 );

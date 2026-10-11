@@ -5,7 +5,7 @@ import * as schema from './schema.ts';
 
 export * from './schema.ts';
 // Query helpers come from here so every package shares one drizzle-orm instance.
-export { and, asc, count, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
+export { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 export { schema };
 
 export type Db = NodePgDatabase<typeof schema>;

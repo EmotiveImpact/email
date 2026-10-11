@@ -282,3 +282,66 @@ describe('/app (the web app)', () => {
     expect((await app('DELETE', `${base}/campaigns/${draft.id}`)).status).toBe(409);
   });
 });
+
+describe('embedded studio', () => {
+  const HOST = 'https://app.saleane.test';
+
+  async function launch(ctx: Awaited<ReturnType<typeof start>>) {
+    expect((await ctx.call('PUT', '/v1/studio/origins', { origins: [`${HOST}/settings`, 'http://localhost:3000'] })).status).toBe(200);
+    const response = await ctx.call('POST', '/v1/studio/sessions', {
+      tenant: 'linden',
+      origin: HOST,
+      user: { id: 'staff-7', name: 'Maya', email: 'maya@linden.test' },
+      theme: { accent: '#5E7D63', headingFont: 'serif', canvas: '#F7F3EA' },
+    });
+    expect(response.status).toBe(201);
+    const { url } = (await response.json()) as { url: string };
+    expect(url.startsWith(`${WEB}/embed?page=campaigns#token=stl_`)).toBe(true);
+    return url.split('#token=')[1]!;
+  }
+
+  const exchange = (ctx: Awaited<ReturnType<typeof start>>, token: string) =>
+    ctx.api.request('/app/studio/exchange', { method: 'POST', headers: { 'content-type': 'application/json', origin: WEB }, body: JSON.stringify({ token }) });
+
+  it('only opens for origins the app has allowed', async () => {
+    const ctx = await start();
+    const refused = await ctx.call('POST', '/v1/studio/sessions', { tenant: 'linden', origin: HOST, user: { id: 'x' } });
+    expect(refused.status).toBe(403);
+    expect((await ctx.call('PUT', '/v1/studio/origins', { origins: ['http://evil.test'] })).status).toBe(422);
+  });
+
+  it('swaps a launch token once for a session that reaches one business', async () => {
+    const ctx = await start();
+    const token = await launch(ctx);
+    const swapped = await exchange(ctx, token);
+    expect(swapped.status).toBe(200);
+    const session = (await swapped.json()) as { sessionToken: string; tenantId: string; theme: { canvas: string } };
+    expect(session).toMatchObject({ tenantId: ctx.tenant.id, theme: { canvas: '#F7F3EA' } });
+    expect((await exchange(ctx, token)).status).toBe(401);
+
+    const studio = (method: string, path: string, body?: unknown) =>
+      ctx.api.request(path, {
+        method,
+        headers: { authorization: `Studio ${session.sessionToken}`, 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const me = (await (await studio('GET', '/app/me')).json()) as { user: { name: string }; studio: { tenantId: string } };
+    expect(me).toMatchObject({ user: { name: 'Maya' }, studio: { tenantId: ctx.tenant.id } });
+    expect(((await (await studio('GET', '/app/tenants')).json()) as unknown[]).length).toBe(1);
+
+    const draft = (await (await studio('POST', `/app/tenants/${ctx.tenant.id}/campaigns`, { name: 'From Saleane' })).json()) as { id: string; createdBy: string };
+    expect(draft.createdBy).toMatch(/:staff-7$/);
+    expect(await (await studio('POST', `/app/tenants/${ctx.tenant.id}/campaigns/${draft.id}/test`, {})).json()).toEqual({ to: 'maya@linden.test' });
+
+    // Other businesses in the same account, and account settings, stay out of reach.
+    const other = await ctx.engine.upsertTenant(ctx.appId, 'harbour', { name: 'Harbour Spa' });
+    expect((await studio('GET', `/app/tenants/${other.id}/campaigns`)).status).toBe(404);
+    expect((await studio('POST', '/app/accounts', { name: 'Mine' })).status).toBe(403);
+    expect((await studio('PUT', `/app/tenants/${ctx.tenant.id}/brand`, { accent: '#000000' })).status).toBe(403);
+    expect((await studio('POST', '/app/tenants', { name: 'New' })).status).toBe(403);
+
+    await ctx.engine.endStudioSession(session.sessionToken);
+    expect((await studio('GET', '/app/me')).status).toBe(401);
+  });
+});
+

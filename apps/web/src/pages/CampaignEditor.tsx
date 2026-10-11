@@ -42,6 +42,7 @@ import {
 } from '../api.ts';
 import { useTenant } from '../components/Shell.tsx';
 import { Button, Card, Notice, Segmented, cx } from '../components/ui.tsx';
+import { tellHost } from '../studio.ts';
 import { CampaignBadge, rate, when } from './Campaigns.tsx';
 
 const nf = new Intl.NumberFormat('en-GB');
@@ -160,7 +161,7 @@ function Editor({ campaign }: { campaign: CampaignDetail }) {
         </div>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <div className="flex min-w-0 flex-col gap-4">
           <Card className="flex flex-col gap-4 px-5 py-5">
             <TagField label="Subject line" value={draft.subject} onChange={(subject) => set({ subject })} placeholder="What will make them open it?" />
@@ -692,7 +693,11 @@ function ReviewPanel({
         variant="accent"
         className="self-start"
         disabled={!ready || schedule.isPending || (mode === 'later' && !at)}
-        onClick={() => schedule.mutate(mode === 'later' ? new Date(at).toISOString() : null)}
+        onClick={() =>
+          schedule.mutate(mode === 'later' ? new Date(at).toISOString() : null, {
+            onSuccess: (sent) => tellHost({ type: 'campaign.scheduled', campaignId: sent.id, sendAt: sent.scheduledAt ?? new Date().toISOString() }),
+          })
+        }
       >
         {mode === 'now' ? <Send size={14} /> : <CalendarClock size={14} />}
         {schedule.isPending
@@ -748,7 +753,7 @@ function Results({ campaign }: { campaign: CampaignDetail }) {
       </div>
       {unschedule.isError && <Notice tone="bad">{unschedule.error.message}</Notice>}
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
+      <div className="grid items-start gap-4 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
         <div className="flex flex-col gap-4">
           {s ? (
             <>

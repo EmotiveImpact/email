@@ -22,6 +22,7 @@ import { Webhook } from 'standardwebhooks';
 import { z } from 'zod';
 import { createAudience } from './audience.ts';
 import { createCampaigns } from './campaigns.ts';
+import { createStudio } from './studio.ts';
 import type { JobName, Jobs, Queue } from './queue.ts';
 import { parseSesEvent, type SesEvent } from './ses-events.ts';
 import { PermanentSendError, PlatformError, type Transport } from './types.ts';
@@ -677,6 +678,7 @@ export function createEngine(deps: { db: Db; transport: Transport; queue: Queue;
   return {
     ...createAudience(db),
     ...campaignsApi,
+    ...createStudio(db),
     createAccountWithApp,
     createApp,
     createApiKey,

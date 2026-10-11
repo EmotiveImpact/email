@@ -214,3 +214,34 @@ One entry per real choice: what we picked, what else we considered, and why. New
 ### D42. Headings load Cal Sans where inboxes allow
 - **Picked:** emails declare Cal Sans from Google Fonts across a weight range and ask for bold headings.
 - **Why:** Apple Mail and iOS show Cal Sans as designed; Gmail and Outlook ignore web fonts and fall back to a bold system face instead of a thin one.
+
+## Stage 4: the studio inside Saleane and Caleane
+
+### D43. The studio is the same app in an iframe
+- **Picked:** a host app shows our campaign and audience screens in an iframe at `/embed`. It is the same web app and the same `/app` endpoints, with a slimmer frame (two tabs, no rail, business switcher or assistant).
+- **Considered:** React components published as a package; a web component.
+- **Why:** one codebase for both doors, nothing to version inside each host, and the host's own CSS cannot break ours. platform-direction.md planned iframe first.
+- **Revisit if:** a host needs the studio mixed into its own pages (a campaign card on Saleane's dashboard). Then publish the pages as React components over the same API.
+
+### D44. A one-time launch link, then a session token held in the tab
+- **Picked:** the host's server calls `POST /v1/studio/sessions` with its API key, naming the business, the person and the page origin. It gets a URL whose fragment carries a launch token that works once, within five minutes. The studio swaps it for an eight-hour session token sent as `Authorization: Studio …`. Only hashes of both tokens are stored.
+- **Considered:** signed JWTs with no database row; a cookie set inside the frame.
+- **Why:** browsers block or partition third-party cookies, so a cookie in a frame is fragile; a header always works. A database row means a session can be ended at once (the person signs out of Saleane) and every session is auditable. The fragment keeps the token out of server and proxy logs.
+- **Revisit if:** session lookups show up in latency; cache them briefly in memory.
+
+### D45. A studio session reaches one business and nothing above it
+- **Picked:** the same `/app` routes check that a studio session only touches its own business. Account settings, new businesses and the business's look are refused (the host owns those through the API).
+- **Why:** one set of routes and tests, with the narrower rule enforced in one middleware.
+
+### D46. Only origins the app allows may show the studio
+- **Picked:** each app keeps a list of embed origins (`PUT /v1/studio/origins`); a session names the page origin and must match. The studio only posts messages to that origin, and the host helper only listens to the studio's origin.
+- **Why:** stops someone else's page framing a business's studio. In production the page serving `/embed` should also send `Content-Security-Policy: frame-ancestors` with the app's origins, and every other page `frame-ancestors 'none'`; that comes with the deployment work.
+
+### D47. The host's look, the business's emails
+- **Picked:** a session carries the host's accent, heading font and page background (Saleane: sage, a serif, ivory). Emails keep the business's own brand.
+- **Why:** inside Saleane the studio should read as part of Saleane, while the emails clients receive come from Linden Studio, not from Saleane.
+
+### D48. Our own frame sizing instead of iframe-resizer
+- **Picked:** the studio posts its content height; `mountStudio` in `@platform/sdk/browser` sets the frame height. About thirty lines.
+- **Considered:** iframe-resizer (now GPL-3.0 or a paid licence from v5), Penpal (MIT, a full RPC layer).
+- **Why:** we need four one-way events (ready, resize, session-expired, campaign.scheduled). Penpal is the step up if hosts need to call into the studio.

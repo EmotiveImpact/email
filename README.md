@@ -52,6 +52,27 @@ await email.emails.send({
 
 Marketing email (`stream: 'marketing'`) only goes to contacts with recorded consent, carries one-click unsubscribe headers, and is held back for anyone who unsubscribed or complained. Reminders and receipts (`transactional`, the default) still go.
 
+## Put the studio inside your app
+
+Allow your page's origin once, then create a session on your server whenever someone opens Email, and mount it in the page:
+
+```ts
+// server
+await email.studio.setOrigins(['https://app.saleane.com']);
+const { url } = await email.studio.createSession({
+  tenant: 'linden',
+  origin: 'https://app.saleane.com',
+  user: { id: staff.id, name: staff.name, email: staff.email },
+  theme: { accent: '#5E7D63', headingFont: 'serif', canvas: '#F6F1E7' },
+});
+
+// browser
+import { mountStudio } from '@platform/sdk/browser';
+mountStudio(document.getElementById('email')!, url, { onEvent: (e) => e.type === 'session-expired' && reopen() });
+```
+
+To try it locally, run `SALEANE_API_KEY=<key from db:seed> pnpm demo:host` and open http://localhost:3000, a stand-in for Saleane.
+
 ## SES setup
 
 1. Verify the sending domain in SES (eu-west-2) and create a configuration set, `platform-events`.
