@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, ApiError, campaignQuery, campaignsQuery, meQuery, messagesQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
+import { activityQuery, ApiError, campaignQuery, campaignsQuery, flowQuery, flowsQuery, meQuery, messagesQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
@@ -15,7 +15,7 @@ import { Home } from './pages/Home.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
 import { Sending } from './pages/Sending.tsx';
 import { Setup, SignIn } from './pages/SignIn.tsx';
-import { Soon } from './pages/Soon.tsx';
+import { FlowPage, Flows } from './pages/Flows.tsx';
 
 /*
  * Routes are declared in code rather than generated from files: there are few of them, and it
@@ -95,7 +95,18 @@ const campaign = createRoute({
   loader: ({ context, params }) => context.queryClient.ensureQueryData(campaignQuery(params.tenant, params.campaign)),
   component: CampaignPage,
 });
-const flows = createRoute({ getParentRoute: () => tenant, path: 'flows', component: () => <Soon area="flows" /> });
+const flows = createRoute({
+  getParentRoute: () => tenant,
+  path: 'flows',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(flowsQuery(params.tenant)),
+  component: Flows,
+});
+const flow = createRoute({
+  getParentRoute: () => tenant,
+  path: 'flows/$flow',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(flowQuery(params.tenant, params.flow)),
+  component: FlowPage,
+});
 const audience = createRoute({
   getParentRoute: () => tenant,
   path: 'audience',
@@ -125,7 +136,7 @@ const routeTree = root.addChildren([
   signIn,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, audience, segment, domain, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, flow, audience, segment, domain, developers, appearance]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

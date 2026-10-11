@@ -16,6 +16,8 @@ export const Block = z.discriminatedUnion('type', [
   z.object({ id, type: z.literal('image'), src: z.string().max(2000), alt: z.string().max(300).default(''), url: url.optional(), width: z.number().int().min(80).max(600).default(600) }),
   z.object({ id, type: z.literal('divider') }),
   z.object({ id, type: z.literal('spacer'), size: z.enum(['s', 'm', 'l']).default('m') }),
+  /** Free times from the diary, each a link to book it. Filled when a "fill empty slots" email goes. */
+  z.object({ id, type: z.literal('slots'), align }),
 ]);
 export type Block = z.output<typeof Block>;
 export type BlockType = Block['type'];
@@ -38,6 +40,8 @@ export type EmailTheme = {
   logoUrl?: string;
   /** Postal address; UK and US law expect it in marketing email. */
   address?: string;
+  /** The business's online booking page. */
+  bookingUrl?: string;
   headingFont: 'cal-sans' | 'geist' | 'serif';
 };
 
@@ -60,6 +64,8 @@ export function newBlock(type: BlockType): Block {
       return { ...base, type };
     case 'spacer':
       return { ...base, type, size: 'm' };
+    case 'slots':
+      return { ...base, type, align: 'left' };
   }
 }
 

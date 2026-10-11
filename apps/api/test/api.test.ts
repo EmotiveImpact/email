@@ -369,3 +369,47 @@ describe('sending domains', () => {
   });
 });
 
+
+describe('the diary and flows', () => {
+  it('takes bookings and free time, shows the week, and runs a flow from the app', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const base = `/app/tenants/${ctx.tenant.id}`;
+    const at = (days: number, hour = 10) => {
+      const d = new Date(Date.now() + days * 86_400_000);
+      d.setUTCHours(hour, 0, 0, 0);
+      return d.toISOString();
+    };
+    await ctx.call('PUT', '/v1/contacts', { tenant: 'linden', email: 'ama@example.com', firstName: 'Ama', consent: { marketing: 'granted', source: 'test' } });
+    for (const [i, day] of [-89, -61, -33].entries()) {
+      const booked = await ctx.call('PUT', '/v1/appointments', { tenant: 'linden', id: `a${i}`, email: 'ama@example.com', startsAt: at(day), service: 'Balayage', price: 9500, status: 'completed' });
+      expect(booked.status).toBe(200);
+    }
+    expect((await ctx.call('PUT', '/v1/appointments', { tenant: 'linden', id: 'x', startsAt: at(1) })).status).toBe(422);
+    const free = await ctx.call('PUT', '/v1/availability', { tenant: 'linden', from: at(0, 0), to: at(7, 0), slots: [{ startsAt: at(2), endsAt: at(2, 11) }] });
+    expect(await free.json()).toEqual({ slots: 1 });
+
+    const diary = (await (await app('GET', `${base}/diary`)).json()) as { connected: boolean; days: { open: number }[]; dueCount: number; due: { contact: { email: string } }[] };
+    expect(diary).toMatchObject({ connected: true, dueCount: 1, due: [{ contact: { email: 'ama@example.com' } }] });
+    expect(diary.days).toHaveLength(7);
+
+    const flows = (await (await app('GET', `${base}/flows`)).json()) as { id: string; kind: string; live: boolean; problems: string[] }[];
+    expect(flows.map((f) => f.kind)).toEqual(['welcome', 'rebook', 'fill_slots', 'winback']);
+    const rebook = flows.find((f) => f.kind === 'rebook')!;
+    expect(rebook.problems[0]).toMatch(/booking link/);
+    expect((await app('PUT', `${base}/flows/${rebook.id}`, { live: true })).status).toBe(422);
+
+    await app('PUT', `${base}/brand`, { bookingUrl: 'https://linden.test/book', timezone: 'Europe/London' });
+    const live = (await (await app('PUT', `${base}/flows/${rebook.id}`, { live: true, settings: { graceDays: 2 } })).json()) as { live: boolean; waiting: number; settings: Record<string, number> };
+    expect(live).toMatchObject({ live: true, waiting: 1, settings: { graceDays: 2 } });
+    const preview = (await (await app('POST', `${base}/flows/${rebook.id}/preview`, {})).json()) as { html: string };
+    expect(preview.html).toContain('https://linden.test/book?at=');
+
+    await ctx.engine.runFlows(ctx.tenant.id, new Date(), { ignoreHours: true });
+    await ctx.drain();
+    const contact = (await (await app('GET', `${base}/contacts?search=ama`)).json()) as { contacts: { id: string }[] };
+    const detail = (await (await app('GET', `${base}/contacts/${contact.contacts[0]!.id}`)).json()) as { rhythm: { gapDays: number }; appointments: unknown[]; messages: { subject: string }[] };
+    expect(detail).toMatchObject({ rhythm: { gapDays: 28 }, messages: [{ subject: 'Time for your next Balayage?' }] });
+    expect(detail.appointments).toHaveLength(3);
+  });
+});

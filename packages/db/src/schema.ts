@@ -142,6 +142,8 @@ export type Brand = {
   logoUrl?: string;
   /** Postal address for the footer of marketing email. */
   address?: string;
+  /** The business's online booking page; booking links and free-time buttons point here. */
+  bookingUrl?: string;
 };
 
 export const tenants = pgTable(
@@ -160,6 +162,8 @@ export const tenants = pgTable(
     /** Why sending was paused, in words the business can act on. */
     pausedReason: text('paused_reason'),
     pausedAt: timestamp('paused_at', { withTimezone: true }),
+    /** The business's own time zone, for diary days and sending at sensible hours. */
+    timezone: text('timezone').notNull().default('Europe/London'),
     brand: jsonb('brand').$type<Brand>().notNull().default({}),
     createdAt: created(),
   },
@@ -268,6 +272,8 @@ export const messages = pgTable(
     providerMessageId: text('provider_message_id'),
     /** Set when the email was one recipient's copy of a campaign. */
     campaignId: text('campaign_id'),
+    /** Set for emails a flow sent. */
+    flowId: text('flow_id'),
     error: text('error'),
     attempts: integer('attempts').notNull().default(0),
     createdAt: created(),
@@ -282,6 +288,8 @@ export const messages = pgTable(
     // One copy per person per campaign, even if the expansion job runs twice.
     uniqueIndex('messages_campaign_recipient').on(t.campaignId, t.to).where(sql`${t.campaignId} is not null`),
     index('messages_tenant_created').on(t.tenantId, t.createdAt),
+    index('messages_flow').on(t.flowId).where(sql`${t.flowId} is not null`),
+    index('messages_tenant_to').on(t.tenantId, t.to, t.sentAt),
   ],
 );
 
@@ -450,3 +458,107 @@ export const domains = pgTable('domains', {
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: created(),
 });
+
+// ---------------------------------------------------------------- the diary
+
+export const APPOINTMENT_STATUSES = ['booked', 'completed', 'cancelled', 'no_show'] as const;
+export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+
+/**
+ * Appointments from the host app's diary (Saleane bookings, Caleane shoots). They give each client
+ * a rhythm (how often they come), show what is booked ahead, and let us count bookings and revenue
+ * that followed an email.
+ */
+export const appointments = pgTable(
+  'appointments',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    /** The host app's id for the booking. */
+    externalId: text('external_id').notNull(),
+    contactId: text('contact_id')
+      .notNull()
+      .references(() => contacts.id),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    service: text('service'),
+    staff: text('staff'),
+    /** In minor units (pence). */
+    price: integer('price'),
+    currency: text('currency').notNull().default('GBP'),
+    status: text('status', { enum: APPOINTMENT_STATUSES }).notNull().default('booked'),
+    /** When the client made the booking, which is what an email can take credit for. */
+    bookedAt: timestamp('booked_at', { withTimezone: true }).notNull(),
+    createdAt: created(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('appointments_tenant_external').on(t.tenantId, t.externalId),
+    index('appointments_contact').on(t.contactId, t.startsAt),
+    index('appointments_tenant_starts').on(t.tenantId, t.startsAt),
+    index('appointments_tenant_booked').on(t.tenantId, t.bookedAt),
+  ],
+);
+
+/** Free time in the diary, as the host app last reported it. */
+export const openSlots = pgTable(
+  'open_slots',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    staff: text('staff'),
+    service: text('service'),
+  },
+  (t) => [index('open_slots_tenant_starts').on(t.tenantId, t.startsAt)],
+);
+
+// ---------------------------------------------------------------- flows
+
+export const FLOW_KINDS = ['welcome', 'rebook', 'fill_slots', 'winback'] as const;
+export type FlowKind = (typeof FLOW_KINDS)[number];
+
+/** An email that sends itself when something happens in the diary. One of each kind per business. */
+export const flows = pgTable(
+  'flows',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    kind: text('kind', { enum: FLOW_KINDS }).notNull(),
+    live: boolean('live').notNull().default(false),
+    subject: text('subject').notNull(),
+    /** The editor document (`EmailDoc` in @platform/content). */
+    content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+    /** Timing for the kind, such as days after a first visit. */
+    settings: jsonb('settings').$type<Record<string, number>>().notNull().default({}),
+    createdAt: created(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('flows_tenant_kind').on(t.tenantId, t.kind)],
+);
+
+/** Who a flow has emailed and for what, so nobody gets the same nudge twice. */
+export const flowSends = pgTable(
+  'flow_sends',
+  {
+    id: text('id').primaryKey(),
+    flowId: text('flow_id')
+      .notNull()
+      .references(() => flows.id, { onDelete: 'cascade' }),
+    contactId: text('contact_id')
+      .notNull()
+      .references(() => contacts.id),
+    /** What this send was for, such as the visit it follows up or the day it fills. */
+    reason: text('reason').notNull(),
+    messageId: text('message_id').references(() => messages.id),
+    createdAt: created(),
+  },
+  (t) => [uniqueIndex('flow_sends_once').on(t.flowId, t.contactId, t.reason), index('flow_sends_contact').on(t.contactId, t.createdAt)],
+);

@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { campaignsQuery, segmentsQuery, useCreateCampaign, type Campaign, type CampaignStatus } from '../api.ts';
 import { useTenant } from '../components/Shell.tsx';
+import { money } from '../components/email-editor.tsx';
 import { Button, Card, Notice, PageTitle, Segmented, cx } from '../components/ui.tsx';
 
 const nf = new Intl.NumberFormat('en-GB');
@@ -95,7 +96,8 @@ export function Campaigns() {
                     <th className="px-3 py-3 font-medium">Status</th>
                     <th className="px-3 py-3 text-right font-medium">Recipients</th>
                     <th className="px-3 py-3 text-right font-medium">Opened</th>
-                    <th className="px-5 py-3 text-right font-medium">Clicked</th>
+                    <th className="px-3 py-3 text-right font-medium">Clicked</th>
+                    <th className="px-5 py-3 text-right font-medium">Booked</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -136,7 +138,17 @@ function Row({ campaign: c, audience }: { campaign: Campaign; audience: string }
       </td>
       <td className="px-3 py-3.5 text-right tabular-nums">{c.recipients === null ? '–' : nf.format(c.recipients)}</td>
       <td className="px-3 py-3.5 text-right tabular-nums">{stats ? rate(stats.opened, stats.delivered) : '–'}</td>
-      <td className="px-5 py-3.5 text-right tabular-nums">{stats ? rate(stats.clicked, stats.delivered) : '–'}</td>
+      <td className="px-3 py-3.5 text-right tabular-nums">{stats ? rate(stats.clicked, stats.delivered) : '–'}</td>
+      <td className="px-5 py-3.5 text-right tabular-nums">
+        {stats ? (
+          <span className="flex flex-col items-end">
+            <span className={cx(stats.bookings > 0 && 'font-semibold text-ink')}>{stats.bookings}</span>
+            {stats.revenue > 0 && <span className="text-xs text-muted">{money(stats.revenue)}</span>}
+          </span>
+        ) : (
+          '–'
+        )}
+      </td>
     </tr>
   );
 }

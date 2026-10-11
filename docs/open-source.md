@@ -157,6 +157,20 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | `penpal` 8.0.1 | MIT | Kept for later, if hosts need to call into the studio (D48) |
 | `post-robot` 8.0.32 (PayPal) | Not stated on npm | Considered. Last release August 2024, so not used |
 
+## Used in stage 6 (diary and flows)
+
+| Package or project (checked 11 Oct 2026) | Licence | What for |
+|---|---|---|
+| pg-boss `schedule` | MIT | Already in use; runs the hourly flow tick once across servers (D62) |
+| Dittofeed journeys | MIT | Studied: segment-triggered journeys. We chose four fixed plays over a canvas (D57) |
+| Mautic campaigns | GPL-3.0 | Studied only: campaign builder with conditions and waits (D57) |
+| Cal.com availability | AGPL-3.0 (enterprise parts commercial) | Studied only: how free slots are worked out from opening hours and bookings. Our hosts send slots ready made (D55) |
+| Easy!Appointments | GPL-3.0 | Studied only: a small salon booking system; a likely source of availability for an adapter (D55) |
+| `@date-fns/tz` 1.5.0, `luxon` 3.7.2, `temporal-polyfill` 1.0.5 | MIT | Considered for time zones. `Intl` was enough (D60) |
+| `rrule` 2.8.1 | BSD-3-Clause | Considered for opening hours. Not needed while hosts send free slots |
+| `@calcom/embed-react` 1.5.3 | Own licence file | Not used |
+| Klaviyo predictive analytics and attribution docs | Product docs | Principles only: predicted next order date and a five-day email window (D56, D61) |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates
@@ -166,3 +180,9 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 - https://vercel.com/blog/vercel-acquires-tremor
 - https://dittofeed.com/pricing
 - https://docs.dittofeed.com/guide/license
+- https://cal.com/blog/changing-to-agplv3-and-introducing-enterprise-edition
+- https://docs.dittofeed.com/deployment/deployment
+- https://contribute.mautic.org/about/what-is-mautic
+- https://cdn.jsdelivr.net/gh/alextselegidis/easyappointments@main/README.md
+- https://help.klaviyo.com/hc/en-us/articles/360020919731
+- https://help.klaviyo.com/hc/en-us/articles/115005248128-Understanding-message-conversion-tracking

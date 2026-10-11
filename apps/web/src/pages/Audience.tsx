@@ -2,7 +2,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ArrowRight, Plus, Search, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
-import { contactQuery, contactsQuery, segmentsQuery, useAddContact, type Consent, type Contact } from '../api.ts';
+import { contactQuery, contactsQuery, segmentsQuery, useAddContact, type Consent, type Contact, type Rhythm } from '../api.ts';
+import { money } from '../components/email-editor.tsx';
 import { useTenant } from '../components/Shell.tsx';
 import { Button, Card, Notice, PageTitle, Segmented, StatusBadge, cx } from '../components/ui.tsx';
 import { describeSegment, eventLabel } from '../segments.ts';
@@ -335,6 +336,23 @@ function ContactPanel({ tenant, contact, onClose }: { tenant: string; contact: s
                   </Notice>
                 )}
               </div>
+              {data.rhythm && data.rhythm.visits > 0 && <RhythmCard rhythm={data.rhythm} />}
+              {data.appointments.length > 0 && (
+                <Section title="Visits" empty="">
+                  {data.appointments.map((a) => (
+                    <li key={a.id} className="flex justify-between gap-3 border-t border-rule py-2 first:border-t-0">
+                      <span className={cx(a.status === 'cancelled' || a.status === 'no_show' ? 'text-muted line-through' : '')}>
+                        {a.service ?? 'Appointment'}
+                        {a.staff && <span className="text-muted"> · {a.staff}</span>}
+                      </span>
+                      <span className="text-muted tabular-nums">
+                        {a.price !== null && <>{money(a.price)} · </>}
+                        {date(a.startsAt)}
+                      </span>
+                    </li>
+                  ))}
+                </Section>
+              )}
               <Section title="Timeline" empty="Nothing has happened yet.">
                 {data.events.map((e) => (
                   <li key={e.id} className="flex justify-between gap-3 border-t border-rule py-2 first:border-t-0">
@@ -369,6 +387,38 @@ function ContactPanel({ tenant, contact, onClose }: { tenant: string; contact: s
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+/** Their rhythm: how often they come, when they last did, and when they are due. */
+function RhythmCard({ rhythm: r }: { rhythm: Rhythm }) {
+  const now = Date.now();
+  const due = r.dueAt ? new Date(r.dueAt).getTime() : null;
+  const next = r.bookedAhead && r.nextVisit
+    ? { label: 'Booked', value: date(r.nextVisit), tone: 'good' as const }
+    : due === null
+      ? { label: 'Due', value: 'After a second visit', tone: 'muted' as const }
+      : due < now
+        ? { label: 'Overdue since', value: date(r.dueAt!), tone: 'warn' as const }
+        : { label: 'Due around', value: date(r.dueAt!), tone: 'muted' as const };
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-soft px-4 py-3.5 text-[13px]">
+      <Fact label="Visits" value={String(r.visits)} />
+      <Fact label="Usually every" value={r.gapDays ? weeksText(r.gapDays) : '–'} />
+      <Fact label="Last visit" value={r.lastVisit ? `${date(r.lastVisit)}${r.lastService ? ` · ${r.lastService}` : ''}` : '–'} />
+      <Fact label={next.label} value={next.value} tone={next.tone} />
+    </div>
+  );
+}
+
+const weeksText = (days: number) => (days < 14 ? `${days} days` : `${Math.round(days / 7)} weeks`);
+
+function Fact({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' | 'muted' }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={cx('truncate font-medium', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn')}>{value}</span>
     </div>
   );
 }

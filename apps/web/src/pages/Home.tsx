@@ -1,7 +1,7 @@
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { ArrowRight } from 'lucide-react';
-import { activityQuery, meQuery, type Activity } from '../api.ts';
+import { activityQuery, diaryQuery, meQuery, type Activity } from '../api.ts';
 import { AreaChart, soften } from '../components/charts.tsx';
 import { useTenant } from '../components/Shell.tsx';
 import { Card, CardTitle, PageTitle, StatusBadge, cx } from '../components/ui.tsx';
@@ -162,31 +162,42 @@ function HealthTile({ label, value, note, tone }: { label: string; value: string
   );
 }
 
-/** Sample until the diary sync lands (Saleane first). Shown so the shape of Home is right from day one. */
-const WEEK: [string, number, number][] = [
-  ['Mon', 2, 26],
-  ['Tue', 7, 21],
-  ['Wed', 4, 24],
-  ['Thu', 9, 19],
-  ['Fri', 3, 25],
-  ['Sat', 0, 30],
-  ['Sun', 0, 0],
+/** Shown until the diary is connected, so the shape of Home is right from day one. */
+const SAMPLE: { label: string; open: number; booked: number }[] = [
+  { label: 'Mon', open: 2, booked: 26 },
+  { label: 'Tue', open: 7, booked: 21 },
+  { label: 'Wed', open: 4, booked: 24 },
+  { label: 'Thu', open: 9, booked: 19 },
+  { label: 'Fri', open: 3, booked: 25 },
+  { label: 'Sat', open: 0, booked: 30 },
+  { label: 'Sun', open: 0, booked: 0 },
 ];
+
+const weekdayOf = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
 
 function DiaryStrip() {
   const tenant = useTenant();
-  const busiest = WEEK.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const { data: diary } = useQuery(diaryQuery(tenant.id));
+  const live = diary?.connected ?? false;
+  const week = live ? diary!.days.map((d) => ({ label: weekdayOf(d.day), open: d.open, booked: d.booked })) : SAMPLE;
+  // The quietest day: the one with the most free time, where an email would help most.
+  const quietest = week.reduce((a, b) => (b.open > a.open ? b : a));
+  const totalOpen = week.reduce((sum, d) => sum + d.open, 0);
+  // Bars share one scale, so a day with two bookings does not look as full as a busy Saturday.
+  const fullest = Math.max(1, ...week.map((d) => d.open + d.booked));
   return (
     <Card className="flex h-[292px] flex-col gap-3 px-[22px] py-5">
-      <CardTitle aside={<span className="rounded-full bg-soft px-2 py-0.5 text-xs">Sample diary</span>}>Your next 7 days</CardTitle>
+      <CardTitle aside={live ? `${totalOpen} free ${totalOpen === 1 ? 'slot' : 'slots'}` : <span className="rounded-full bg-soft px-2 py-0.5 text-xs">Sample diary</span>}>
+        Your next 7 days
+      </CardTitle>
       <div role="img" aria-label="Booked and empty slots for each of the next seven days" className="flex min-h-0 flex-1 items-stretch gap-2">
-        {WEEK.map(([day, empty, booked]) => {
-          const closed = empty + booked === 0;
-          const hot = day === busiest[0];
+        {week.map((d, i) => {
+          const closed = d.open + d.booked === 0;
+          const hot = d === quietest && d.open > 0;
           return (
-            <div key={day} className="flex flex-1 flex-col items-center gap-1.5">
-              <span className={cx('text-xs font-semibold', hot ? 'text-accent-ink' : closed || !empty ? 'text-faint' : 'text-ink')}>
-                {closed ? 'Shut' : empty || '✓'}
+            <div key={`${d.label}-${i}`} className="flex flex-1 flex-col items-center gap-1.5">
+              <span className={cx('text-xs font-semibold', hot ? 'text-accent-ink' : closed || !d.open ? 'text-faint' : 'text-ink')}>
+                {closed ? 'Shut' : d.open || '✓'}
               </span>
               <div
                 className="flex w-full max-w-[30px] grow flex-col overflow-hidden rounded-lg bg-soft"
@@ -194,25 +205,39 @@ function DiaryStrip() {
               >
                 {!closed && (
                   <>
+                    <div style={{ flex: `${fullest - d.open - d.booked} 1 0` }} />
                     <div
                       style={{
-                        flex: `${empty} 1 0`,
+                        flex: `${d.open} 1 0`,
                         opacity: hot ? 1 : 0.75,
                         background: 'repeating-linear-gradient(135deg, var(--accent) 0 2px, var(--tint) 2px 6px)',
                       }}
                     />
-                    <div style={{ flex: `${booked} 1 0` }} className="bg-[#DAD9D5]" />
+                    <div style={{ flex: `${d.booked} 1 0` }} className="bg-[#DAD9D5]" />
                   </>
                 )}
               </div>
-              <span className={cx('text-xs', hot ? 'font-semibold text-ink' : 'text-muted')}>{day}</span>
+              <span className={cx('text-xs', hot ? 'font-semibold text-ink' : 'text-muted')}>{d.label}</span>
             </div>
           );
         })}
       </div>
       <div className="flex items-center justify-between gap-2.5 border-t border-rule pt-2">
         <span className="text-[13px] leading-snug">
-          <span className="font-semibold">Empty slots</span> <span className="text-muted">appear here once your booking diary is connected</span>
+          {live ? (
+            diary!.dueCount > 0 ? (
+              <>
+                <span className="font-semibold">{diary!.dueCount} {diary!.dueCount === 1 ? 'client' : 'clients'} due back</span>{' '}
+                <span className="text-muted">with nothing booked</span>
+              </>
+            ) : (
+              <span className="text-muted">Everyone due back has booked</span>
+            )
+          ) : (
+            <>
+              <span className="font-semibold">Empty slots</span> <span className="text-muted">appear here once your booking diary is connected</span>
+            </>
+          )}
         </span>
         <Link
           to="/$tenant/flows"

@@ -275,3 +275,56 @@ One entry per real choice: what we picked, what else we considered, and why. New
 ### D54. Partners set up domains through the API too
 - **Picked:** `GET/POST /v1/tenants/:id/domains`, `POST …/:domainId/check` and `DELETE`, plus `domain.verified` webhooks.
 - **Why:** this is the Connect flow from platform-direction.md: a partner's own settings screen can show our DNS records without sending its customers to us.
+
+## Stage 6: the diary, and flows that use it
+
+### D55. The diary arrives through two plain API calls
+- **Picked:** `PUT /v1/appointments` (one booking, keyed by the host's own id, sent again whenever it changes) and `PUT /v1/availability` (the free slots for a window, replacing what was there). Saleane and Caleane call them; so can any booking system.
+- **Considered:** reading calendars (Google, iCal); reading Saleane's database directly.
+- **Why:** the host already knows every booking and every gap. Replacing a whole window makes free time idempotent: the host never has to work out what changed.
+- **Revisit if:** customers arrive on third-party booking systems (Fresha, Timely, Square). Write small adapters that call the same two endpoints.
+
+### D56. A client's rhythm is the median gap between their own visits
+- **Picked:** from two visits on, a client is due back at last visit plus the median gap between their visits (Postgres `percentile_cont`). A client with one visit uses a setting (six weeks by default). Shown on each contact as visits, usual gap, last visit and due date.
+- **Considered:** an average per service; a learned prediction like Klaviyo's predicted next order date, which needs a large shop with hundreds of repeat buyers.
+- **Why:** a salon has tens or hundreds of clients, not thousands, and the owner can check the maths by looking at the visits. The median ignores the one long holiday.
+- **Revisit if:** gaps differ a lot by treatment (a colour every six weeks, a brow tidy every three). Then work the rhythm out per service.
+
+### D57. Four ready-made flows instead of a journey canvas
+- **Picked:** every business has four flows, off until switched on: a thank-you after a first visit, due back, fill quiet days, and we miss you. Each has a few number settings, its own email (same editor as campaigns) and its own results.
+- **Considered:** a general journey builder in the style of Dittofeed (MIT) or Mautic (GPL).
+- **Why:** these four plays are where an appointment business makes money from email, and a salon owner should not have to draw a graph to get them. The tables (`flows`, `flow_sends`) carry any later play.
+- **Revisit if:** customers ask for a fifth play twice. Add it to the library; build a canvas only when plays need branching.
+
+### D58. Each flow emails a client once per reason
+- **Picked:** a send is recorded against a reason (`welcome`, `rebook:<last visit>`, `winback:<last visit>`, `fill:<day>`), unique per flow and client. Fill quiet days offers each day once.
+- **Why:** the job runs every hour and can run twice; the unique row makes that harmless, and a client gets one nudge per lapse, not one per hour.
+
+### D59. Guard rails before cleverness
+- **Picked:** flows send between 9am and 7pm in the business's time zone, only to clients who said yes to news and are not suppressed, never within three days of any other marketing email (campaigns included), and fill quiet days emails at most a few clients per free slot (closest to due first). Time-sensitive flows go first in each run.
+- **Why:** an automated email that lands at 2am, or three emails in a week, costs the business more than it earns, and too many offers for three slots makes clients feel misled.
+- **Revisit if:** owners want weekend or evening sending; make the hours a business setting.
+
+### D60. Free times are filled in when the email goes
+- **Picked:** a "Free times" block shows up to six slots as buttons linking to the booking page with `?at=<time>`. Across several days it shows at most two a day first, so people see a choice of days. Times are formatted with the built-in `Intl` API in the business's time zone.
+- **Considered:** `@date-fns/tz` (MIT), `luxon` (MIT), `temporal-polyfill` (MIT).
+- **Why:** the slots are never out of date, and booking pages that ignore `at` still open. `Intl` covers what we need without a dependency.
+- **Revisit if:** we start doing calendar arithmetic across daylight-saving changes; Temporal is the clean answer once Node ships it.
+
+### D61. A booking counts for the email the client had just before it
+- **Picked:** a booking is credited to the last marketing email (campaign or flow) the client received in the five days before they booked. Campaigns and flows show "Booked after this email" with the number of bookings and their value.
+- **Considered:** crediting only after an open or a click; holdout groups.
+- **Why:** salons care about bookings and money, not opens, and opens are unreliable. Five days matches the usual email window in tools like Klaviyo, and last-touch is easy to explain to an owner.
+- **Revisit if:** we need to prove lift rather than show correlation. Hold back a small random group per flow and compare.
+
+### D62. One hourly tick fans out per business
+- **Picked:** pg-boss runs `run-flows` at five past every hour; it queues one job per business with a flow switched on.
+- **Why:** pg-boss makes sure only one server sends each tick, and one slow business does not hold up the rest.
+
+### D63. A host's sync keeps the business's own settings
+- **Picked:** `PUT /v1/tenants/:id` without `brand` now leaves the brand alone. Businesses gain a time zone (IANA, default Europe/London) and a booking link.
+- **Why:** before, Saleane syncing a business would wipe the logo and address the owner had set in Appearance.
+
+### D64. Campaigns use the diary too
+- **Picked:** campaigns can use `{{booking_url}}`, `{{last_service}}` and `{{weeks_since_visit}}`, and the Free times block, all filled per client at send time.
+- **Why:** a one-off newsletter should be as personal as a flow.

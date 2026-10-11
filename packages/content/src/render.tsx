@@ -41,7 +41,12 @@ export function inline(text: string, linkColour: string): ReactNode[] {
   return out;
 }
 
-function BlockView({ block, theme }: { block: Block; theme: EmailTheme }) {
+/** One free time, as a link that books it. */
+export type SlotLink = { label: string; url: string };
+/** Values only known when an email goes, such as today's free times. */
+export type RenderData = { slots?: SlotLink[] };
+
+function BlockView({ block, theme, data }: { block: Block; theme: EmailTheme; data: RenderData }) {
   switch (block.type) {
     case 'heading':
       return (
@@ -94,10 +99,37 @@ function BlockView({ block, theme }: { block: Block; theme: EmailTheme }) {
       return <Hr style={{ border: 'none', borderTop: '1px solid #ECEBE8', margin: '22px 0' }} />;
     case 'spacer':
       return <div style={{ height: { s: 12, m: 24, l: 44 }[block.size] }} />;
+    case 'slots': {
+      const slots = data.slots ?? [];
+      if (!slots.length) return null;
+      return (
+        <Section style={{ margin: '4px 0 18px', textAlign: block.align }}>
+          {slots.map((slot) => (
+            <Link
+              key={slot.url}
+              href={slot.url}
+              style={{
+                display: 'inline-block',
+                margin: '0 8px 8px 0',
+                padding: '9px 14px',
+                borderRadius: '10px',
+                border: `1.5px solid ${theme.accent}`,
+                color: INK,
+                fontSize: '14px',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              {slot.label}
+            </Link>
+          ))}
+        </Section>
+      );
+    }
   }
 }
 
-export function EmailView({ doc, theme }: { doc: EmailDoc; theme: EmailTheme }) {
+export function EmailView({ doc, theme, data = {} }: { doc: EmailDoc; theme: EmailTheme; data?: RenderData }) {
   const footer: CSSProperties = { margin: '0 0 6px', color: MUTED, fontSize: '12px', lineHeight: 1.6, textAlign: 'center' };
   return (
     <Html lang="en-GB">
@@ -119,7 +151,7 @@ export function EmailView({ doc, theme }: { doc: EmailDoc; theme: EmailTheme }) 
           </Section>
           <Section style={{ background: '#FFFFFF', borderRadius: '16px', border: '1px solid #ECEBE8', padding: '32px 36px 18px' }}>
             {doc.blocks.map((block) => (
-              <BlockView key={block.id} block={block} theme={theme} />
+              <BlockView key={block.id} block={block} theme={theme} data={data} />
             ))}
           </Section>
           <Section style={{ padding: '20px 16px 0' }}>
@@ -141,15 +173,15 @@ export function EmailView({ doc, theme }: { doc: EmailDoc; theme: EmailTheme }) 
  * HTML and plain text for an email. Merge tags such as {{first_name}} and {{unsubscribe_url}}
  * stay in the output; they are filled per recipient (see merge.ts and the engine's send step).
  */
-export async function renderEmail(doc: EmailDoc, theme: EmailTheme) {
-  const element = <EmailView doc={doc} theme={theme} />;
+export async function renderEmail(doc: EmailDoc, theme: EmailTheme, data: RenderData = {}) {
+  const element = <EmailView doc={doc} theme={theme} data={data} />;
   const [html, text] = await Promise.all([render(element), render(element, {
       plainText: true,
       // Keep headings as written: upper-casing would also break merge tags like {{first_name}}.
       htmlToTextOptions: { selectors: [1, 2, 3].map((n) => ({ selector: `h${n}`, options: { uppercase: false } })) },
     })]);
-  // Some link components URL-encode hrefs; keep the placeholder readable for the send step.
-  return { html: html.replaceAll('%7B%7Bunsubscribe_url%7D%7D', '{{unsubscribe_url}}'), text };
+  // Some link components URL-encode hrefs; turn merge tags back so they can be filled per person.
+  return { html: html.replace(/%7B%7B([a-z_]+(?:%7C[^%"]*)?)%7D%7D/gi, (_, tag: string) => `{{${decodeURIComponent(tag)}}}`), text };
 }
 
 /** Things to fix before sending. Empty means ready. */

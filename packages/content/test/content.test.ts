@@ -64,4 +64,17 @@ describe('theme', () => {
     expect(themeFromBrand('Linden', { accent: '#FFD400' }).onAccent).toBe('#121214');
     expect(themeFromBrand('Linden', { accent: 'red' }).accent).toBe('#D9481F');
   });
+
+  it('shows free times as links, and keeps link merge tags readable', async () => {
+    const doc = EmailDoc.parse({
+      blocks: [
+        { id: 's', type: 'slots' },
+        { id: 'b', type: 'button', label: 'Book', url: '{{booking_url}}' },
+      ],
+    });
+    const { html } = await renderEmail(doc, theme, { slots: [{ label: 'Thu 10:00', url: 'https://linden.example/book?at=2026-10-15T09:00:00Z' }] });
+    expect(html).toContain('Thu 10:00');
+    expect(html).toContain('href="{{booking_url}}"');
+    expect((await renderEmail(doc, theme)).html).not.toContain('Thu 10:00');
+  });
 });
