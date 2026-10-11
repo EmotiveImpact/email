@@ -225,6 +225,15 @@ Not yet pulled in: Recharts (the two charts so far are a few lines of SVG, see D
 | Coolify | Apache-2.0 | Considered: self-hosted platform; one more server to keep alive |
 | Dittofeed's Helm and Docker setups | MIT | Studied: one image with roles, as here |
 
+## Stage 11: strengthening and plugging in
+
+| Project | Licence | Use |
+|---|---|---|
+| `date-fns-tz` | MIT | Considered for local diary time to UTC; the SDK's `zonedTime` uses the built-in `Intl` instead, so the SDK keeps one dependency |
+| `@js-temporal/polyfill` | ISC | Considered for the same; too large for an SDK while Temporal is still arriving in Node |
+| `standardwebhooks` | MIT | Already the SDK's only dependency; the guides keep it that way |
+| Saleane's own `instantIn` | Ours | Used in the Saleane guide rather than adding anything |
+
 ## Sources
 
 - npm registry (`npm view`) for all package licences, versions and dates

@@ -4,8 +4,10 @@ import {
   apiKeys,
   apps,
   appEvents,
+  appointments,
   consents,
   contacts,
+  flowSends,
   flows,
   messageEvents,
   messages,
@@ -249,6 +251,7 @@ export function createEngine(deps: {
   });
   const sendRate = config.sendRate ?? 10;
   const diary = createDiary(db, getTenant);
+  const studioApi = createStudio(db);
   const billingApi = createBilling({ db, provider: deps.paymentProvider === undefined ? new SamplePaymentProvider() : deps.paymentProvider });
   const flowsApi = createFlows({ db, queue, senderFor: domainsApi.senderFor, sendRate, diary, emailsLeft: billingApi.emailsLeft });
   const assetsApi = createAssets({
@@ -286,6 +289,61 @@ export function createEngine(deps: {
     const id = newId('key');
     await db.insert(apiKeys).values({ id, appId, name, prefix: key.slice(0, 12), hash: sha256(key) });
     return { id, key };
+  }
+
+  async function appInAccount(accountId: string, appId: string) {
+    const [row] = await db.select().from(apps).where(and(eq(apps.id, appId), eq(apps.accountId, accountId)));
+    if (!row) throw new PlatformError('not_found', 'No such app in this account.', 404);
+    return row;
+  }
+
+  /** The account's apps, each with its live keys (never the keys themselves, only their start). */
+  async function listApps(accountId: string) {
+    const rows = await db.select().from(apps).where(eq(apps.accountId, accountId)).orderBy(desc(apps.direct), apps.createdAt);
+    const keys = rows.length
+      ? await db
+          .select({ id: apiKeys.id, appId: apiKeys.appId, name: apiKeys.name, prefix: apiKeys.prefix, createdAt: apiKeys.createdAt, lastUsedAt: apiKeys.lastUsedAt })
+          .from(apiKeys)
+          .where(and(inArray(apiKeys.appId, rows.map((r) => r.id)), isNull(apiKeys.revokedAt)))
+          .orderBy(apiKeys.createdAt)
+      : [];
+    return rows.map((app) => ({
+      id: app.id,
+      name: app.name,
+      direct: app.direct,
+      embedOrigins: app.embedOrigins,
+      keys: keys.filter((k) => k.appId === app.id).map(({ appId: _, ...k }) => k),
+    }));
+  }
+
+  /** Adds an app such as Saleane, for its server to call the API with its own keys. */
+  async function addApp(accountId: string, raw: unknown) {
+    const name = z.object({ name: z.string().trim().min(1).max(80) }).safeParse(raw);
+    if (!name.success) throw new PlatformError('invalid_request', 'Give the app a name.', 422);
+    const app = await createApp(accountId, name.data.name);
+    return (await listApps(accountId)).find((a) => a.id === app.id)!;
+  }
+
+  async function addApiKey(accountId: string, appId: string, raw: unknown) {
+    await appInAccount(accountId, appId);
+    const name = z.object({ name: z.string().trim().max(80).default('') }).safeParse(raw ?? {});
+    const created = await createApiKey(appId, (name.success && name.data.name) || 'Server key');
+    return created;
+  }
+
+  async function revokeApiKey(accountId: string, keyId: string) {
+    const [row] = await db
+      .select({ id: apiKeys.id })
+      .from(apiKeys)
+      .innerJoin(apps, eq(apps.id, apiKeys.appId))
+      .where(and(eq(apiKeys.id, keyId), eq(apps.accountId, accountId), isNull(apiKeys.revokedAt)));
+    if (!row) throw new PlatformError('not_found', 'No such key.', 404);
+    await db.update(apiKeys).set({ revokedAt: new Date() }).where(eq(apiKeys.id, keyId));
+  }
+
+  async function setAppEmbedOrigins(accountId: string, appId: string, raw: unknown) {
+    await appInAccount(accountId, appId);
+    return studioApi.setEmbedOrigins(appId, raw);
   }
 
   async function authenticate(key: string | undefined): Promise<App> {
@@ -365,6 +423,53 @@ export function createEngine(deps: {
   }
 
   // ---------------------------------------------------------------- contacts and app events
+
+  /**
+   * Removes a client at their request (UK GDPR right to erasure): the contact, their bookings,
+   * consent history and events go; emails already sent stay in the counts but lose the address and
+   * the words. An existing unsubscribe or bounce is kept, so they are never emailed again by
+   * mistake if the app adds them back without asking.
+   */
+  async function eraseContact(app: App, raw: unknown) {
+    const input = parse(
+      z
+        .object({ tenant: z.string().min(1), email: z.string().trim().toLowerCase().email().optional(), externalId: z.string().min(1).optional() })
+        .refine((v) => v.email || v.externalId, 'Give the client’s email or externalId.'),
+      raw,
+    );
+    const tenant = await getTenant(app.id, input.tenant);
+    const [contact] = await db
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.tenantId, tenant.id), input.email ? eq(contacts.email, input.email) : eq(contacts.externalId, input.externalId!)));
+    if (!contact) return { erased: false };
+    await db.transaction(async (tx) => {
+      const sent = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.tenantId, tenant.id), eq(messages.to, contact.email)));
+      const ids = sent.map((m) => m.id);
+      if (ids.length) {
+        // Anything still waiting to go is stopped. Each copy gets its own blank address, because a
+        // campaign holds one copy per address.
+        await tx
+          .update(messages)
+          .set({ status: 'failed', error: 'erased' })
+          .where(and(inArray(messages.id, ids), inArray(messages.status, ['queued', 'sending'])));
+        await tx
+          .update(messages)
+          .set({ to: sql`'erased+' || ${messages.id} || '@erased.invalid'`, subject: '(erased)', html: null, text: null, updatedAt: new Date() })
+          .where(inArray(messages.id, ids));
+        await tx.update(messageEvents).set({ detail: {} }).where(inArray(messageEvents.messageId, ids));
+      }
+      await tx.delete(flowSends).where(eq(flowSends.contactId, contact.id));
+      await tx.delete(appointments).where(eq(appointments.contactId, contact.id));
+      await tx.delete(appEvents).where(eq(appEvents.contactId, contact.id));
+      await tx.delete(consents).where(eq(consents.contactId, contact.id));
+      await tx.delete(contacts).where(eq(contacts.id, contact.id));
+    });
+    return { erased: true };
+  }
 
   async function upsertContact(app: App, raw: UpsertContactInput) {
     const input = parse(UpsertContactInput, raw);
@@ -836,14 +941,20 @@ export function createEngine(deps: {
     ...flowsApi,
     reputation,
     resumeTenant,
-    ...createStudio(db),
+    ...studioApi,
     createAccountWithApp,
     createApp,
     createApiKey,
+    listApps,
+    addApp,
+    addApiKey,
+    revokeApiKey,
+    setAppEmbedOrigins,
     authenticate,
     upsertTenant,
     getTenant,
     upsertContact,
+    eraseContact,
     recordEvent,
     sendEmail,
     processSend,

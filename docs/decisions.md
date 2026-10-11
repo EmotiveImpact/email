@@ -495,3 +495,49 @@ Mocks for every key screen, the design components and four palettes are on one c
 ### D100. Pictures in a private bucket behind CloudFront
 - **Picked:** S3 with all public access blocked, served through CloudFront (origin access control, HTTPS only, cached, CORS open so the design canvas can draw them). Price class 100 (Europe and North America), since recipients are mostly in the UK.
 - **Considered:** a public bucket (simpler, but S3 now discourages it and there is no caching); serving pictures from the API (fine locally, wasteful in production).
+
+## Stage 11: strengthening pass and plugging in Saleane and Caleane
+
+Ran the whole journey as a new salon owner (sign up, bring in clients and visits, a campaign, a flow, a test send, bookings after the email) and fixed what broke or read badly. Then worked out how Saleane and Caleane plug in, from their code.
+
+### D101. A flow looks for clients the moment it is switched on
+- **Picked:** switching a flow on queues a run for that business straight away; the hourly tick carries on as before.
+- **Why:** an owner who switched on Due back saw nothing happen for up to an hour and could fairly think it was broken.
+
+### D102. Flow emails without free times offer the booking page
+- **Picked:** when no free times are known (no diary connected, or a full week), the free-times block becomes a "Choose a time" button to the business's booking page, and is left out if there is no booking page.
+- **Why:** the email said "These times are free:" followed by nothing. Most owners will start without a connected diary.
+
+### D103. The first campaign is ready to send
+- **Picked:** a new campaign starts as "Space this week" with a subject line (`A few spaces this week, {{first_name|there}}`) and its button already pointing at the booking page when there is one.
+- **Why:** the starter had an empty subject and a button to `https://`, so the first thing an owner saw was two problems.
+
+### D104. Apps and keys are made in Developers
+- **Picked:** owners and admins add an app, make keys (shown once), revoke them, and list the sites allowed to show the studio. Hidden inside the embedded studio.
+- **Why:** keys could only be made by the seed script, so no one could connect Saleane or Caleane without us.
+
+### D105. Erasing a client
+- **Picked:** `POST /v1/contacts/erase` (by email or externalId) deletes the contact, their visits, events, consent records and flow history; past emails stay for the business's counts but lose the address, subject and body; anything still queued to them is stopped. Suppressions are kept.
+- **Why:** UK GDPR's right to erasure, which both apps already honour on their side. Keeping the suppression is the one thing we hold on to, so an erased client who had unsubscribed is not emailed again if the address comes back in an import.
+- **Considered:** deleting the emails too (breaks campaign totals and revenue history).
+
+### D106. Bookings in bulk
+- **Picked:** `POST /v1/appointments/batch`, up to 500 per call, each saved on its own; the answer lists failed rows by index and keeps the rest. A booking that names a client by email teaches the platform the app's id for them.
+- **Why:** bringing in a studio's history one call per visit is slow, and one bad row should not stop the rest.
+
+### D107. How host apps keep in step: an outbox table, not live calls
+- **Picked:** the guides have each app write changes to a small table inside its own save, and send them from a timer, retrying with backoff.
+- **Why:** both apps save to SQLite synchronously inside transactions. A network call there would slow every booking and lose changes when we are down. Both apps already use the same pattern for their own outboxes.
+
+### D108. Saleane's marketing moves to the platform (asked Edem)
+- **Picked, pending Edem's answer:** Saleane's Marketing section opens the embedded studio, its own news and nudges switch off for a connected studio, and its booking emails send through the platform.
+- **Why:** one consent record, one sending reputation, no double nudges.
+- **Alternatives offered:** Saleane keeps its marketing and uses us only to send; or split by feature.
+
+### D109. Caleane clients start as booking-only
+- **Picked:** Caleane never asked about marketing, so its clients get booking emails but no campaigns or flows until they tick a box on the booking form, which is recorded with source `caleane:booking-form`.
+- **Why:** sending marketing without consent breaks PECR; guessing consent from a booking is not allowed.
+
+### D110. Owner-facing words in place of developer words
+- **Picked:** the Flows notice now talks about "free times" and "your booking page" and links to bringing in visits; Home says "Example week" when no diary is connected and no longer claims the week is full.
+- **Why:** owners were shown API names and a misleading "week ahead is full".

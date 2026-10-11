@@ -87,7 +87,9 @@ export function Home() {
                   <Check size={16} />
                 </span>
                 <span className="text-sm">
-                  <span className="font-semibold">Nothing pressing.</span> <span className="text-muted">Your flows are on and the week ahead is full.</span>
+                  <span className="font-semibold">Nothing pressing.</span> <span className="text-muted">
+                    Your flows are on{overview.week.connected ? ' and the week ahead is full.' : ' and everyone due back has booked.'}
+                  </span>
                 </span>
               </Card>
             )}
@@ -133,7 +135,11 @@ function Headline({ overview }: { overview: Overview }) {
     );
   }
   if (due > 0) return <>{people} {due === 1 ? 'is' : 'are'} due back with nothing booked.</>;
-  if (!overview.week.connected) return <>Connect your booking diary and this page fills with the week ahead and who is due back.</>;
+  if (!overview.week.connected) {
+    const bookings = overview.revenue.bookings > 0 || overview.week.days.some((d) => d.booked > 0);
+    if (!bookings) return <>Connect your booking diary and this page fills with the week ahead and who is due back.</>;
+    return <>Everyone due back has booked. Free times show here once your booking system is connected.</>;
+  }
   return <>The week ahead is full and everyone due back has booked.</>;
 }
 
@@ -253,7 +259,7 @@ function WeekAhead({ overview, className }: { overview: Overview | undefined; cl
   const q = week.quietest;
   return (
     <Card className={cx('flex flex-col gap-3.5 px-[22px] pt-[22px] pb-[18px]', className)}>
-      <CardTitle aside={live ? <span className="num">{totalOpen} free {totalOpen === 1 ? 'slot' : 'slots'}</span> : <span className="rounded-full bg-soft px-2 py-0.5 text-xs">Sample diary</span>}>
+      <CardTitle aside={live ? <span className="num">{totalOpen} free {totalOpen === 1 ? 'slot' : 'slots'}</span> : <span className="rounded-full bg-soft px-2 py-0.5 text-xs">Example week</span>}>
         The week ahead
       </CardTitle>
       <div
@@ -311,6 +317,7 @@ function WeekAhead({ overview, className }: { overview: Overview | undefined; cl
           <span className="size-2.5 rounded-[3px] bg-soft" />
           Closed
         </span>
+        {!live && <span className="basis-full text-faint">Your own free times show here once your booking system is connected.</span>}
       </div>
     </Card>
   );

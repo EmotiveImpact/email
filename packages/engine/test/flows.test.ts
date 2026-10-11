@@ -199,4 +199,14 @@ describe('flows', () => {
     await engine.runJob('run-flows', {});
     expect(queue.jobs).toEqual([{ name: 'run-flows', data: { tenantId: tenant.id }, startAfter: undefined }]);
   });
+
+  it('looks for clients as soon as a flow is switched on, not at the next tick', async () => {
+    const { engine, queue, tenant, turnOn } = await studio();
+    queue.jobs.length = 0;
+    const flow = await turnOn('rebook');
+    expect(queue.jobs.filter((j) => j.name === 'run-flows')).toEqual([{ name: 'run-flows', data: { tenantId: tenant.id }, startAfter: undefined }]);
+    // Changing a live flow does not start another run.
+    await engine.updateFlow(tenant.id, flow.id, { subject: 'Time for your next visit?' });
+    expect(queue.jobs.filter((j) => j.name === 'run-flows')).toHaveLength(1);
+  });
 });

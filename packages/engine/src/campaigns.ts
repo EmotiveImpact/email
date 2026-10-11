@@ -94,12 +94,16 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
 
   async function createCampaign(tenantId: string, input: { name?: string; subject?: string; segmentId?: string | null; content?: unknown }, createdBy?: string) {
     const tenant = await tenantById(tenantId);
-    const name = input.name?.trim() || 'Untitled campaign';
-    const content = input.content === undefined ? starterDoc(tenant.name) : parseContent(input.content);
+    const starter = input.content === undefined;
+    // The starter is a "space this week" email, so it arrives with a subject to match; owners can
+    // send it as it is or change it.
+    const name = input.name?.trim() || (starter ? 'Space this week' : 'Untitled campaign');
+    const content = starter ? starterDoc(tenant.name, tenant.brand?.bookingUrl) : parseContent(input.content);
+    const subject = input.subject ?? (starter ? 'A few spaces this week, {{first_name|there}}' : '');
     if (input.segmentId) await segmentOf(tenantId, input.segmentId);
     const [row] = await db
       .insert(campaigns)
-      .values({ id: newId('cmp'), tenantId, name, subject: input.subject ?? '', content, segmentId: input.segmentId ?? null, createdBy })
+      .values({ id: newId('cmp'), tenantId, name, subject, content, segmentId: input.segmentId ?? null, createdBy })
       .returning();
     return row!;
   }

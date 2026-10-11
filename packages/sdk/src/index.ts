@@ -174,6 +174,11 @@ export class PlatformClient {
       attributes?: Record<string, unknown>;
       consent?: { marketing: 'granted' | 'withdrawn'; source: string; recordedAt?: string };
     }) => this.call<Contact>('PUT', '/v1/contacts', contact),
+    /**
+     * Forgets a client: their details, visits and consent go, and past emails are anonymised.
+     * Call it when someone asks to be erased. Unsubscribes and bounces are kept so they stay safe.
+     */
+    erase: (client: { tenant: string; email?: string; externalId?: string }) => this.call<{ erased: boolean }>('POST', '/v1/contacts/erase', client),
   };
 
   readonly events = {
@@ -185,6 +190,9 @@ export class PlatformClient {
   /** Your diary. With bookings and free time, flows can nudge clients who are due and fill quiet days. */
   readonly appointments = {
     upsert: (appointment: AppointmentInput) => this.call<Appointment>('PUT', '/v1/appointments', appointment),
+    /** Up to 500 bookings in one call, for history or catching up. Rows that fail are listed by index. */
+    upsertMany: (tenant: string, appointments: Omit<AppointmentInput, 'tenant'>[]) =>
+      this.call<{ saved: number; errors: { index: number; message: string }[] }>('POST', '/v1/appointments/batch', { tenant, appointments }),
   };
 
   readonly availability = {
@@ -221,4 +229,25 @@ export type StudioSessionInput = {
 /** Checks a webhook really came from the platform and returns the event. Throws if not. */
 export function verifyWebhook(body: string, headers: Record<string, string>, secret: string): WebhookEvent {
   return new Webhook(secret).verify(body, headers) as WebhookEvent;
+}
+
+/**
+ * Turns a local diary time into an exact moment, for booking systems that store a date and minutes
+ * past midnight (Saleane does). `zonedTime('2026-10-27', 600, 'Europe/London')` is 10:00 that day
+ * in London, whether or not the clocks have changed.
+ */
+export function zonedTime(date: string, minutes: number, timeZone: string): Date {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const wall = Date.UTC(y, m - 1, d, 0, minutes);
+  const offsetAt = (at: number) => {
+    const parts: Record<string, number> = Object.fromEntries(
+      new Intl.DateTimeFormat('en-GB', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        .formatToParts(new Date(at))
+        .map((p) => [p.type, Number(p.value)]),
+    );
+    return Date.UTC(parts.year!, parts.month! - 1, parts.day, parts.hour, parts.minute, parts.second) - at;
+  };
+  // Guess with the offset at the wall time, then correct once in case the guess crossed a clock change.
+  const first = wall - offsetAt(wall);
+  return new Date(wall - offsetAt(first));
 }

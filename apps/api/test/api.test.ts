@@ -2,7 +2,7 @@ import { encodePng, type LogTransport } from '@platform/engine';
 import { setup } from '@platform/engine/testing';
 import { Webhook } from 'standardwebhooks';
 import { afterEach, describe, expect, it } from 'vitest';
-import { members, newId } from '@platform/db';
+import { eq, members, messages, newId } from '@platform/db';
 import { createApi } from '../src/app.ts';
 import { createAuth } from '../src/auth.ts';
 
@@ -157,7 +157,7 @@ describe('unsubscribe page', () => {
 });
 
 /** Signs up a person and returns a function that calls /app as them. */
-async function signedIn(ctx: Awaited<ReturnType<typeof start>>, options: { joinAccount?: boolean; email?: string } = {}) {
+async function signedIn(ctx: Awaited<ReturnType<typeof start>>, options: { joinAccount?: boolean; email?: string; role?: string } = {}) {
   const response = await ctx.api.request('/auth/sign-up/email', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: WEB },
@@ -165,7 +165,7 @@ async function signedIn(ctx: Awaited<ReturnType<typeof start>>, options: { joinA
   });
   expect(response.status).toBe(200);
   const { user } = (await response.json()) as { user: { id: string } };
-  if (options.joinAccount !== false) await ctx.db.insert(members).values({ id: newId('mem'), organizationId: ctx.accountId, userId: user.id, role: 'owner' });
+  if (options.joinAccount !== false) await ctx.db.insert(members).values({ id: newId('mem'), organizationId: ctx.accountId, userId: user.id, role: options.role ?? 'owner' });
   const cookie = response.headers
     .getSetCookie()
     .map((c) => c.split(';')[0])
@@ -263,7 +263,7 @@ describe('/app (the web app)', () => {
     const draft = (await (await app('POST', `${base}/campaigns`, { name: 'Thursday' })).json()) as { id: string; content: { blocks: { type: string }[] } };
     expect(draft.content.blocks.length).toBeGreaterThan(0);
     const detail = (await (await app('GET', `${base}/campaigns/${draft.id}`)).json()) as { problems: string[]; audience: { eligible: number } };
-    expect(detail.problems[0]).toBe('Add a subject line.');
+    expect(detail.problems[0]).toMatch(/button needs a link/);
     expect(detail.audience.eligible).toBe(1);
     expect((await app('POST', `${base}/campaigns/${draft.id}/schedule`, {})).status).toBe(422);
 
@@ -418,6 +418,25 @@ describe('the diary and flows', () => {
     const detail = (await (await app('GET', `${base}/contacts/${contact.contacts[0]!.id}`)).json()) as { rhythm: { gapDays: number }; appointments: unknown[]; messages: { subject: string }[] };
     expect(detail).toMatchObject({ rhythm: { gapDays: 28 }, messages: [{ subject: 'Time for your next Balayage?' }] });
     expect(detail.appointments).toHaveLength(3);
+
+    const batch = await ctx.call('POST', '/v1/appointments/batch', {
+      tenant: 'linden',
+      appointments: [
+        { id: 'b1', email: 'kofi@example.com', startsAt: at(-40), status: 'completed' },
+        { id: 'b2', startsAt: at(-20) },
+        { id: 'b3', email: 'kofi@example.com', startsAt: at(-12), status: 'completed' },
+      ],
+    });
+    expect(await batch.json()).toMatchObject({ saved: 2, errors: [{ index: 1 }] });
+
+    const erased = await ctx.call('POST', '/v1/contacts/erase', { tenant: 'linden', email: 'ama@example.com' });
+    expect(await erased.json()).toEqual({ erased: true });
+    expect((await app('GET', `${base}/contacts/${contact.contacts[0]!.id}`)).status).toBe(404);
+    const sent = await ctx.db.select().from(messages).where(eq(messages.tenantId, ctx.tenant.id));
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => /^erased\+.+@erased\.invalid$/.test(m.to) && m.html === null)).toBe(true);
+    expect(await (await ctx.call('POST', '/v1/contacts/erase', { tenant: 'linden', email: 'ama@example.com' })).json()).toEqual({ erased: false });
+    expect((await ctx.call('POST', '/v1/contacts/erase', { tenant: 'linden' })).status).toBe(422);
   });
 });
 
@@ -454,6 +473,43 @@ describe('pictures', () => {
 
     expect((await app('DELETE', `${base}/assets/${asset.id}`)).status).toBe(204);
     expect((await ctx.api.request(new URL(asset.url).pathname)).status).toBe(200);
+  });
+});
+
+describe('apps and API keys', () => {
+  it('lets an owner add an app, give it a key that works, and revoke it', async () => {
+    const ctx = await start();
+    const app = await signedIn(ctx);
+    const added = await app('POST', '/app/accounts/current/apps', { name: 'Caleane' });
+    expect(added.status).toBe(201);
+    const caleane = (await added.json()) as { id: string; name: string; direct: boolean; keys: unknown[] };
+    expect(caleane).toMatchObject({ name: 'Caleane', direct: false, keys: [] });
+
+    const made = await app('POST', `/app/accounts/current/apps/${caleane.id}/keys`, { name: 'Caleane production' });
+    const { id: keyId, key } = (await made.json()) as { id: string; key: string };
+    expect(key).toMatch(/^pk_live_/);
+    const listed = (await (await app('GET', '/app/accounts/current/apps')).json()) as { name: string; keys: { name: string; prefix: string }[] }[];
+    // The key itself is shown once; afterwards only its start.
+    expect(listed.find((a) => a.name === 'Caleane')!.keys).toEqual([expect.objectContaining({ name: 'Caleane production', prefix: key.slice(0, 12) })]);
+    expect(JSON.stringify(listed)).not.toContain(key);
+
+    const withKey = (method: string, path: string, body: unknown) =>
+      ctx.api.request(path, { method, headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect((await withKey('PUT', '/v1/tenants/nay-decor', { name: 'NAY DÉCOR' })).status).toBe(200);
+
+    const origins = await app('PUT', `/app/accounts/current/apps/${caleane.id}/origins`, { origins: ['https://app.caleane.com'] });
+    expect(await origins.json()).toEqual({ origins: ['https://app.caleane.com'] });
+
+    expect((await app('DELETE', `/app/accounts/current/keys/${keyId}`)).status).toBe(204);
+    expect((await withKey('PUT', '/v1/tenants/nay-decor', { name: 'NAY DÉCOR' })).status).toBe(401);
+  });
+
+  it('keeps keys to owners and admins', async () => {
+    const ctx = await start();
+    const member = await signedIn(ctx, { role: 'member' });
+    expect((await member('GET', '/app/accounts/current/apps')).status).toBe(200);
+    expect((await member('POST', '/app/accounts/current/apps', { name: 'Sneaky' })).status).toBe(403);
+    expect((await member('POST', `/app/accounts/current/apps/${ctx.appId}/keys`, {})).status).toBe(403);
   });
 });
 

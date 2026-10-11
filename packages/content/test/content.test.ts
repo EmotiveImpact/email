@@ -39,6 +39,7 @@ describe('rendering', () => {
   it('lists what to fix before sending', () => {
     const doc = starterDoc('Linden Studio');
     expect(problems(doc)).toEqual(['The “Book a time” button needs a link.']);
+    expect(problems(starterDoc('Linden Studio', 'https://linden.example/book'))).toEqual([]);
     expect(problems(EmailDoc.parse({ blocks: [] }))).toEqual(['The email is empty.']);
   });
 });
@@ -76,5 +77,14 @@ describe('theme', () => {
     expect(html).toContain('Thu 10:00');
     expect(html).toContain('href="{{booking_url}}"');
     expect((await renderEmail(doc, theme)).html).not.toContain('Thu 10:00');
+  });
+
+  it('offers the booking page instead when no free times are known', async () => {
+    const doc = EmailDoc.parse({ blocks: [{ id: 's', type: 'slots' }] });
+    const withPage = { ...theme, bookingUrl: 'https://linden.example/book' };
+    const { html } = await renderEmail(doc, withPage);
+    expect(html).toContain('Choose a time');
+    expect(html).toContain('href="https://linden.example/book"');
+    expect((await renderEmail(doc, { ...theme, bookingUrl: undefined })).html).not.toContain('Choose a time');
   });
 });

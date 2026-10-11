@@ -16,7 +16,10 @@ export const Block = z.discriminatedUnion('type', [
   z.object({ id, type: z.literal('image'), src: z.string().max(2000), alt: z.string().max(300).default(''), url: url.optional(), width: z.number().int().min(80).max(600).default(600) }),
   z.object({ id, type: z.literal('divider') }),
   z.object({ id, type: z.literal('spacer'), size: z.enum(['s', 'm', 'l']).default('m') }),
-  /** Free times from the diary, each a link to book it. Filled when a "fill empty slots" email goes. */
+  /**
+   * Free times from the diary, each a link to book it. Filled when a flow email goes; with no free
+   * times known it becomes a "Choose a time" button to the booking page.
+   */
   z.object({ id, type: z.literal('slots'), align }),
 ]);
 export type Block = z.output<typeof Block>;
@@ -70,7 +73,8 @@ export function newBlock(type: BlockType): Block {
 }
 
 /** A first draft for a new campaign, so nobody starts from a blank page. */
-export function starterDoc(businessName: string): EmailDoc {
+/** The first draft of a new campaign. With a booking page, its button already points there. */
+export function starterDoc(businessName: string, bookingUrl?: string | null): EmailDoc {
   return {
     version: 1,
     preview: 'A few spaces have opened up this week.',
@@ -82,7 +86,7 @@ export function starterDoc(businessName: string): EmailDoc {
         text: `Hi {{first_name|there}},\n\nA few appointments have opened up at ${businessName} this week. If you have been meaning to book, now is a good time.`,
         align: 'left',
       },
-      { id: blockId(), type: 'button', label: 'Book a time', url: 'https://', align: 'left' },
+      { id: blockId(), type: 'button', label: 'Book a time', url: bookingUrl ? '{{booking_url}}' : 'https://', align: 'left' },
       { id: blockId(), type: 'spacer', size: 's' },
       { id: blockId(), type: 'text', text: `See you soon,\n${businessName}`, align: 'left' },
     ],
