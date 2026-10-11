@@ -7,9 +7,11 @@ export type Jobs = {
   'check-domain': { domainId: string };
   /** Without a tenant: the hourly tick, which queues one run per business with live flows. */
   'run-flows': { tenantId?: string };
+  /** Without a connection: the timer, which queues one sync per connected booking system (D132). */
+  'sync-diary': { connectionId?: string };
 };
 export type JobName = keyof Jobs;
-export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign', 'check-domain', 'run-flows'];
+export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign', 'check-domain', 'run-flows', 'sync-diary'];
 
 export type EnqueueOptions = {
   /** Do not run before this time. Used to pace campaign sends and to schedule campaigns. */

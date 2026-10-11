@@ -103,7 +103,7 @@ export function createOnboarding({ db, diary }: { db: Db; diary: ReturnType<type
   }
 
   /** Adds or updates clients from a spreadsheet. Returns counts and the rows it could not use. */
-  async function importClients(tenantId: string, raw: unknown) {
+  async function importClients(tenantId: string, raw: unknown, source = 'import:owner-confirmed') {
     const parsed = ImportClientsInput.safeParse(raw);
     if (!parsed.success) throw new PlatformError('invalid_request', issue(parsed.error), 422);
     const { clients, consent } = parsed.data;
@@ -145,7 +145,7 @@ export function createOnboarding({ db, diary }: { db: Db; diary: ReturnType<type
         const fresh = saved.filter((s) => s.consent === 'unknown').map((s) => s.id);
         if (fresh.length) {
           const now = new Date();
-          await tx.insert(consents).values(fresh.map((contactId) => ({ id: newId('con'), tenantId, contactId, status: 'granted' as const, source: 'import:owner-confirmed', recordedAt: now })));
+          await tx.insert(consents).values(fresh.map((contactId) => ({ id: newId('con'), tenantId, contactId, status: 'granted' as const, source, recordedAt: now })));
           await tx
             .update(contacts)
             .set({ marketingConsent: 'granted', updatedAt: now })

@@ -6,7 +6,7 @@ import type { Construct } from 'constructs';
 import type { PlatformConfig } from './config.ts';
 
 /** Values set by hand after the first deploy; each starts as a placeholder (see docs/production.md). */
-export const APP_SECRET_KEYS = ['DATABASE_URL', 'DIRECT_DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'OPENAI_API_KEY'] as const;
+export const APP_SECRET_KEYS = ['DATABASE_URL', 'DIRECT_DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'OPENAI_API_KEY', 'SQUARE_APP_ID', 'SQUARE_APP_SECRET', 'SQUARE_WEBHOOK_SIGNATURE_KEY'] as const;
 
 /**
  * The parts that must exist before the app can run: where images are kept, the secrets, and the

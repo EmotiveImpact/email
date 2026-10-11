@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router';
 import { useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query';
-import { ArrowRight, ArrowUp, ChevronDown, CodeXml, CreditCard, Globe, House, Image as ImageIcon, Megaphone, Palette, Plus, Search, Send, Sparkles, SquarePen, type LucideIcon, Users, Workflow, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, CalendarCheck, ChevronDown, CodeXml, CreditCard, Globe, House, Image as ImageIcon, Megaphone, Palette, Plus, Search, Send, Sparkles, SquarePen, type LucideIcon, Users, Workflow, X } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { auth, meQuery, tenantsQuery, useCreateCampaign, type Tenant } from '../api.ts';
 import { CommandPalette } from './CommandPalette.tsx';
@@ -25,6 +25,7 @@ const RAIL: Area[][] = [
 
 const BOTTOM: Area[] = [
   { to: '/$tenant/settings/domain', label: 'Sending domain', icon: Globe },
+  { to: '/$tenant/settings/diary', label: 'Booking system', icon: CalendarCheck },
   { to: '/$tenant/developers', label: 'Developers', icon: CodeXml },
   { to: '/$tenant/settings/appearance', label: 'Appearance', icon: Palette },
   { to: '/$tenant/billing', label: 'Billing', icon: CreditCard },

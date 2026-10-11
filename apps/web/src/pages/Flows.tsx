@@ -168,9 +168,9 @@ function FlowsScreen({ flows, selected }: { flows: Flow[]; selected: string }) {
                 <Link to="/$tenant/audience" params={{ tenant: tenant.id }} search={{ import: 'visits' }} className="font-semibold underline">
                   bringing in your latest visits
                 </Link>
-                , or connect your booking system from{' '}
-                <Link to="/$tenant/developers" params={{ tenant: tenant.id }} className="font-semibold underline">
-                  Developers
+                , or{' '}
+                <Link to="/$tenant/settings/diary" params={{ tenant: tenant.id }} className="font-semibold underline">
+                  connect your booking system
                 </Link>{' '}
                 to offer real free times.
               </>

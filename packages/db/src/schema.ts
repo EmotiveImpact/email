@@ -520,6 +520,41 @@ export const appointments = pgTable(
   ],
 );
 
+/**
+ * A booking system the platform reads the diary from directly, for businesses whose bookings do
+ * not come through a host app (D132). Tokens are sealed with the platform's secret before saving.
+ */
+export const diaryConnections = pgTable(
+  'diary_connections',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    provider: text('provider', { enum: ['square'] }).notNull(),
+    /** The provider's id for the business (Square's merchant id). */
+    accountId: text('account_id').notNull(),
+    locationId: text('location_id'),
+    locationName: text('location_name'),
+    accessToken: text('access_token').notNull(),
+    refreshToken: text('refresh_token'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    /** The service whose free times stand for the diary's free time. Default: the most booked one. */
+    serviceId: text('service_id'),
+    /**
+     * What the owner confirmed about their clients when connecting: "granted" when they agreed to
+     * hear news, as in a spreadsheet import. Clients who unsubscribed in the booking system never are.
+     */
+    consent: text('consent', { enum: ['granted', 'unknown'] }).notNull().default('unknown'),
+    status: text('status', { enum: ['active', 'error'] }).notNull().default('active'),
+    error: text('error'),
+    lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('diary_connections_tenant_provider').on(t.tenantId, t.provider), index('diary_connections_account').on(t.provider, t.accountId)],
+);
+
 /** Free time in the diary, as the host app last reported it. */
 export const openSlots = pgTable(
   'open_slots',

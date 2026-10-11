@@ -1,5 +1,5 @@
 import { encodePng, type LogTransport } from '@platform/engine';
-import { setup } from '@platform/engine/testing';
+import { fakeSquare, setup, SQUARE_TEST_CONFIG } from '@platform/engine/testing';
 import { Webhook } from 'standardwebhooks';
 import { afterEach, describe, expect, it } from 'vitest';
 import { eq, members, messages, newId } from '@platform/db';
@@ -16,8 +16,8 @@ afterEach(async () => {
 
 type Mail = { to: string; subject: string; html: string; text: string };
 
-async function start(options: { verifySns?: boolean; fetch?: typeof fetch; mail?: (m: Mail) => Promise<void> } = {}) {
-  const ctx = await setup({ fetch: options.fetch });
+async function start(options: { verifySns?: boolean; fetch?: typeof fetch; mail?: (m: Mail) => Promise<void>; square?: boolean } = {}) {
+  const ctx = await setup({ fetch: options.fetch, square: options.square ? SQUARE_TEST_CONFIG : undefined });
   close = ctx.close;
   const auth = createAuth({ db: ctx.db, engine: ctx.engine, secret: 'test-secret-that-is-long-enough-1234', baseURL: WEB, webOrigin: WEB, mail: options.mail });
   const api = createApi({
@@ -603,5 +603,50 @@ describe('a business on its own', () => {
       body: JSON.stringify({ email: 'edem@test.dev', password: 'another-long-password' }),
     });
     expect(signIn.status).toBe(200);
+  });
+});
+
+describe('connecting a booking system', () => {
+  it('lets owners connect Square and finishes the return where they are signed in', async () => {
+    const square = fakeSquare({ bookings: [], customers: [], services: [] });
+    const ctx = await start({ fetch: square.fetch, square: true });
+    const owner = await signedIn(ctx);
+    const member = await signedIn(ctx, { role: 'member', email: 'member@test.dev' });
+    const path = `/app/tenants/${ctx.tenant.id}/diary-connection`;
+
+    expect(await (await member('GET', path)).json()).toEqual({ available: { square: true }, connection: null });
+    expect((await member('POST', `${path}/square`, { consent: 'granted' })).status).toBe(403);
+    expect((await owner('POST', `${path}/square`, {})).status).toBe(422);
+    const { url } = (await (await owner('POST', `${path}/square`, { consent: 'granted' })).json()) as { url: string };
+    const state = new URL(url).searchParams.get('state')!;
+
+    // Square sends the owner back to the API, which hands the code to the web app's settings page.
+    const back = await ctx.api.request(`/connect/square/callback?code=abc&state=${encodeURIComponent(state)}`);
+    expect(back.status).toBe(302);
+    const target = new URL(back.headers.get('location')!);
+    expect(target.origin + target.pathname).toBe(`${WEB}/${ctx.tenant.id}/settings/diary`);
+    expect(target.searchParams.get('code')).toBe('abc');
+    const refused = await ctx.api.request(`/connect/square/callback?error=access_denied&state=${encodeURIComponent(state)}`);
+    expect(new URL(refused.headers.get('location')!).searchParams.get('refused')).toBe('1');
+    expect((await ctx.api.request('/connect/square/callback?code=abc&state=forged.state')).status).toBe(400);
+
+    // Only the person who started it can finish it.
+    expect((await member('POST', `${path}/square/finish`, { code: 'abc', state })).status).toBe(403);
+    const done = await owner('POST', `${path}/square/finish`, { code: 'abc', state });
+    expect(await done.json()).toMatchObject({ connection: { provider: 'square', locationName: 'Fern & Fable, Leeds', consent: 'granted' } });
+
+    expect((await member('DELETE', path)).status).toBe(403);
+    expect((await owner('DELETE', path)).status).toBe(204);
+  });
+
+  it('accepts only signed Square webhooks', async () => {
+    const ctx = await start({ square: true });
+    const body = JSON.stringify({ merchant_id: 'MERCHANT', type: 'booking.created' });
+    const unsigned = await ctx.api.request('/connect/square/webhook', { method: 'POST', body });
+    expect(unsigned.status).toBe(401);
+    const { createHmac } = await import('node:crypto');
+    const signature = createHmac('sha256', 'hook-key').update(`https://api.test/connect/square/webhook${body}`).digest('base64');
+    const signed = await ctx.api.request('/connect/square/webhook', { method: 'POST', body, headers: { 'x-square-hmacsha256-signature': signature } });
+    expect(await signed.json()).toEqual({ synced: 0 });
   });
 });
