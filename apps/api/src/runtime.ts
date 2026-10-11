@@ -20,6 +20,9 @@ export async function boot(env: NodeJS.ProcessEnv = process.env) {
   if (!databaseUrl) throw new Error('Set DATABASE_URL (see .env.example).');
   const { db, pool } = createDb(databaseUrl);
   const ses = env.TRANSPORT === 'ses';
+  // Without the topic, delivery events from any AWS account would be believed, and a forged bounce
+  // could stop email to anyone.
+  if (ses && !env.SES_TOPIC_ARN) throw new Error('Set SES_TOPIC_ARN when sending through SES.');
   const transport: Transport = ses ? SesTransport.fromEnv(env) : new LogTransport();
   const queue = await PgBossQueue.start(databaseUrl);
   const port = Number(env.PORT ?? 8787);

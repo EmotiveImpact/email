@@ -100,6 +100,13 @@ describe('/v1', () => {
     await call('POST', '/v1/emails', { tenant: 'linden', to: 'a@example.com', subject: 'Hi', text: 'x' });
     await drain();
     expect(new Webhook(created.secret).verify(received[0]!.body, received[0]!.headers)).toMatchObject({ type: 'email.sent' });
+
+    const listed = (await (await call('GET', '/v1/webhooks')).json()) as { id: string; url: string }[];
+    expect(listed).toEqual([expect.objectContaining({ url: 'https://saleane.test/hooks' })]);
+    expect((await call('DELETE', `/v1/webhooks/${listed[0]!.id}`)).status).toBe(204);
+    expect(await (await call('GET', '/v1/webhooks')).json()).toEqual([]);
+    expect((await call('POST', '/v1/webhooks', { url: 'http://saleane.test/hooks' })).status).toBe(422);
+    expect((await call('POST', '/v1/webhooks', { url: 'https://169.254.169.254/latest' })).status).toBe(422);
   });
 });
 
@@ -274,6 +281,8 @@ describe('/app (the web app)', () => {
     expect(saved.problems).toEqual([]);
 
     expect(await (await app('POST', `${base}/campaigns/${draft.id}/test`, {})).json()).toEqual({ to: 'edem@test.dev' });
+    // Tests only go to the team, never to an address typed in.
+    expect((await app('POST', `${base}/campaigns/${draft.id}/test`, { to: 'stranger@example.com' })).status).toBe(403);
     const sent = (await (await app('POST', `${base}/campaigns/${draft.id}/schedule`, {})).json()) as { status: string };
     expect(sent.status).toBe('scheduled');
     await ctx.drain();
@@ -401,7 +410,7 @@ describe('the diary and flows', () => {
     expect((await app('GET', `${base}/overview?days=12`)).status).toBe(422);
 
     const flows = (await (await app('GET', `${base}/flows`)).json()) as { id: string; kind: string; live: boolean; problems: string[] }[];
-    expect(flows.map((f) => f.kind)).toEqual(['welcome', 'rebook', 'fill_slots', 'winback']);
+    expect(flows.map((f) => f.kind)).toEqual(['welcome', 'rebook', 'fill_slots', 'winback', 'review', 'birthday']);
     const rebook = flows.find((f) => f.kind === 'rebook')!;
     expect(rebook.problems[0]).toMatch(/booking link/);
     expect((await app('PUT', `${base}/flows/${rebook.id}`, { live: true })).status).toBe(422);
@@ -510,6 +519,19 @@ describe('apps and API keys', () => {
     expect((await member('GET', '/app/accounts/current/apps')).status).toBe(200);
     expect((await member('POST', '/app/accounts/current/apps', { name: 'Sneaky' })).status).toBe(403);
     expect((await member('POST', `/app/accounts/current/apps/${ctx.appId}/keys`, {})).status).toBe(403);
+    expect((await member('POST', `/app/tenants/${ctx.tenant.id}/billing/plan`, { plan: 'growth' })).status).toBe(403);
+    expect((await member('POST', `/app/tenants/${ctx.tenant.id}/resume`, {})).status).toBe(403);
+  });
+
+  it('refuses changes sent from another website', async () => {
+    const ctx = await start();
+    await signedIn(ctx);
+    const cookieless = await ctx.api.request(`/app/tenants/${ctx.tenant.id}/brand`, {
+      method: 'PUT',
+      headers: { origin: 'https://evil.example', 'content-type': 'text/plain' },
+      body: JSON.stringify({ address: 'x' }),
+    });
+    expect(cookieless.status).toBe(403);
   });
 });
 

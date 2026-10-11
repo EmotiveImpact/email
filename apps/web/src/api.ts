@@ -503,7 +503,7 @@ export type Diary = {
 export const diaryQuery = (tenant: string) =>
   queryOptions({ queryKey: ['diary', tenant], queryFn: () => request<Diary>(`/app/tenants/${tenant}/diary`), refetchInterval: 60_000 });
 
-export type FlowKind = 'welcome' | 'rebook' | 'fill_slots' | 'winback';
+export type FlowKind = 'welcome' | 'rebook' | 'fill_slots' | 'winback' | 'review' | 'birthday';
 export type FlowStats = { sent: number; opened: number; clicked: number; bookings: number; revenue: number };
 
 export type Flow = {
@@ -525,7 +525,7 @@ export type Flow = {
 
 export type FlowNext = {
   total: number;
-  people: { firstName: string | null; lastName: string | null; email: string; lastService: string | null; lastVisit: string | null; dueAt: string | null }[];
+  people: { firstName: string | null; lastName: string | null; email: string; lastService: string | null; lastVisit: string | null; dueAt: string | null; birthdayIn: number | null }[];
   /** Fill quiet days only: the day it would offer and its free times. */
   fill: { day: string; open: number; times: string[] } | null;
 };

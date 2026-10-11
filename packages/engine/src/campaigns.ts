@@ -41,14 +41,18 @@ export type CampaignDeps = {
   sendingProblem: (tenantId: string, count: number) => Promise<string | null>;
 };
 
+/** Test sends a business can make in a day. */
+export const TESTS_PER_DAY = 25;
+
 /** Made-up values for tests and previews, so every merge tag shows something sensible. */
-export function sampleValues(tenant: { name: string; brand: { bookingUrl?: string } }, email: string) {
+export function sampleValues(tenant: { name: string; brand: { bookingUrl?: string; reviewUrl?: string } }, email: string) {
   return {
     first_name: 'Ama',
     last_name: 'Mensah',
     email,
     business_name: tenant.name,
     booking_url: tenant.brand.bookingUrl ?? '#',
+    review_url: tenant.brand.reviewUrl ?? '#',
     last_service: 'Balayage',
     weeks_since_visit: '7',
     slot_day: 'Thursday',
@@ -260,6 +264,7 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
           email: p.email,
           business_name: tenant.name,
           booking_url: tenant.brand.bookingUrl ?? '',
+          review_url: tenant.brand.reviewUrl ?? '',
           last_service: rhythm?.lastService ?? '',
           weeks_since_visit: rhythm?.lastVisit ? String(Math.max(1, Math.round((start - rhythm.lastVisit.getTime()) / (7 * 86_400_000)))) : '',
           slot_day: '',
@@ -302,6 +307,15 @@ export function createCampaigns({ db, queue, senderFor, sendRate, diary, upcomin
     const campaign = await getCampaign(tenantId, id);
     const tenant = await tenantById(tenantId);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new PlatformError('invalid_request', 'That email address does not look right.', 422);
+    const [blocked] = await db
+      .select({ reason: suppressions.reason })
+      .from(suppressions)
+      .where(and(eq(suppressions.email, to.toLowerCase()), inArray(suppressions.scope, [tenantId, 'global'])));
+    if (blocked) throw new PlatformError('suppressed', 'That address bounced or unsubscribed, so we will not send to it.', 422);
+    const [{ n }] = (await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from ${messages} where tenant_id = ${tenantId} and tags ->> 'test' = 'true' and created_at > now() - interval '1 day'`,
+    )).rows as [{ n: number }];
+    if (n >= TESTS_PER_DAY) throw new PlatformError('rate_limited', `That is ${TESTS_PER_DAY} test emails today. More tomorrow.`, 429);
     const doc = parseContent(campaign.content);
     const slots = await slotsFor(tenant, doc, true);
     const { html, text } = await renderEmail(doc, themeFromBrand(tenant.name, tenant.brand), { slots });

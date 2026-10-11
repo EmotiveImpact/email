@@ -137,6 +137,12 @@ export const apps = pgTable('apps', {
    * app's other businesses (a salon inside Saleane) are paid for by the app, not by us.
    */
   direct: boolean('direct').notNull().default(false),
+  /**
+   * Set by us, never by a customer: the app pays for its businesses' sending (Saleane, Caleane).
+   * Other apps' businesses are on plans of their own, like Direct ones, so an app cannot be used to
+   * send without limits (D112).
+   */
+  partner: boolean('partner').notNull().default(false),
   createdAt: created(),
 });
 
@@ -150,6 +156,8 @@ export type Brand = {
   address?: string;
   /** The business's online booking page; booking links and free-time buttons point here. */
   bookingUrl?: string;
+  /** Where happy clients leave a review (Google, Facebook, Treatwell); the review flow links here. */
+  reviewUrl?: string;
 };
 
 export const tenants = pgTable(
@@ -528,7 +536,7 @@ export const openSlots = pgTable(
 
 // ---------------------------------------------------------------- flows
 
-export const FLOW_KINDS = ['welcome', 'rebook', 'fill_slots', 'winback'] as const;
+export const FLOW_KINDS = ['welcome', 'rebook', 'fill_slots', 'winback', 'review', 'birthday'] as const;
 export type FlowKind = (typeof FLOW_KINDS)[number];
 
 /** An email that sends itself when something happens in the diary. One of each kind per business. */
@@ -649,3 +657,14 @@ export const subscriptions = pgTable(
   (t) => [uniqueIndex('subscriptions_provider_id').on(t.subscriptionId).where(sql`${t.subscriptionId} is not null`), index('subscriptions_customer').on(t.customerId)],
 );
 
+// ---------------------------------------------------------------- rate limits
+
+/**
+ * One counter per caller and window (an API key per minute, an IP address per hour on sign-up).
+ * Kept in Postgres so every container shares the same count (D114).
+ */
+export const rateLimits = pgTable('rate_limits', {
+  key: text('key').primaryKey(),
+  windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+  count: integer('count').notNull(),
+});

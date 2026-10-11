@@ -95,6 +95,8 @@ describe('sending', () => {
     expect(email.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
     const url = email.headers['List-Unsubscribe']!.slice(1, -1);
     expect(url.startsWith('https://api.test/u/')).toBe(true);
+    // Raw HTML without our footer still gets a visible way out.
+    expect(email.html).toContain(`href="${url}"`);
 
     const result = await engine.unsubscribe(url.split('/u/')[1]!);
     expect(result).toEqual({ email: 'kofi@example.com', tenantName: 'Linden Studio' });
@@ -103,6 +105,13 @@ describe('sending', () => {
     expect(after.status).toBe('suppressed');
     const receipt = await engine.sendEmail(app, { tenant: 'linden', to: 'kofi@example.com', subject: 'Your receipt', text: 'Thanks' });
     expect(receipt.status).toBe('queued');
+
+    // A late sync carrying an opt-in from before the unsubscribe does not undo it; a new one does.
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+    await engine.upsertContact(app, { tenant: 'linden', email: 'kofi@example.com', consent: { marketing: 'granted', source: 'saleane:sync', recordedAt: yesterday } });
+    expect((await engine.sendEmail(app, { tenant: 'linden', stream: 'marketing', to: 'kofi@example.com', subject: 'Late', html: '<p>Hi</p>' })).status).toBe('suppressed');
+    await engine.upsertContact(app, { tenant: 'linden', email: 'kofi@example.com', consent: { marketing: 'granted', source: 'saleane:booking-form' } });
+    expect((await engine.sendEmail(app, { tenant: 'linden', stream: 'marketing', to: 'kofi@example.com', subject: 'Welcome back', html: '<p>Hi</p>' })).status).toBe('queued');
 
     await expect(engine.unsubscribe(`${sent.id}.forged`)).rejects.toMatchObject({ code: 'invalid_token' });
   });

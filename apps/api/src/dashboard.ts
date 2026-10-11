@@ -5,8 +5,8 @@
  * The embedded studio uses the same endpoints with a studio session token instead of a sign-in
  * cookie. That session reaches one business only, and none of the account-level settings.
  */
-import { and, apps, ASSET_KINDS, eq, members, messages, PLAN_IDS, tenants, type AssetKind, type Db, type PlanId } from '@platform/db';
-import { MAX_ASSET_BYTES, parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
+import { and, apps, ASSET_KINDS, eq, members, messages, PLAN_IDS, sql, tenants, users, type AssetKind, type Db, type PlanId } from '@platform/db';
+import { LIMITS, MAX_ASSET_BYTES, parseDefinition, PlatformError, slugify, type Engine, type StudioViewer } from '@platform/engine';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
@@ -53,6 +53,10 @@ export function publicMessage(m: typeof messages.$inferSelect) {
   };
 }
 
+const tooLargeRequest = (): never => {
+  throw new PlatformError('too_large', 'That request is too large.', 413);
+};
+
 const tooLarge = (): never => {
   throw new PlatformError('too_large', 'Pictures can be up to 5 MB. Try a smaller or more compressed file.', 413);
 };
@@ -72,6 +76,18 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   /** The studio swaps its one-time launch token for a session token. Needs no other sign-in. */
   r.post('/studio/exchange', async (c) => c.json(await engine.exchangeStudioToken((await json(c)).token)));
 
+  // A page on another site cannot make changes with someone's cookie: browsers always say where a
+  // request came from, and only the web app may write (D115).
+  r.use(async (c, next) => {
+    const origin = c.req.header('origin');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && origin && origin !== webOrigin) {
+      throw new PlatformError('forbidden', 'Requests must come from the app.', 403);
+    }
+    // Pictures and designs have their own, larger limits.
+    if (/\/(assets|designs)(\/|$)/.test(c.req.path)) return next();
+    return bodyLimit({ maxSize: 1024 * 1024, onError: tooLargeRequest })(c, next);
+  });
+
   r.use(async (c, next) => {
     const header = c.req.header('authorization');
     if (header?.startsWith('Studio ')) {
@@ -82,6 +98,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
       c.set('studio', studio);
       c.set('viewer', studio.user);
       c.set('accountId', studio.accountId);
+      await engine.hitLimit(`studio:${studio.tenantId}:${studio.user.id}`, LIMITS.dashboard);
       return next();
     }
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -90,6 +107,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     const active = session.session.activeOrganizationId;
     const accountId = memberships.find((m) => m.accountId === active)?.accountId ?? memberships[0]?.accountId;
     c.set('viewer', { id: session.user.id, name: session.user.name, email: session.user.email });
+    await engine.hitLimit(`viewer:${session.user.id}`, LIMITS.dashboard);
     if (accountId) c.set('accountId', accountId);
     else if (!(c.req.path.endsWith('/me') || (c.req.path.endsWith('/accounts') && c.req.method === 'POST'))) {
       throw new PlatformError('no_account', 'Create an account first.', 403);
@@ -141,12 +159,17 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   // ---------------------------------------------------------------- apps and API keys
 
   /** Keys reach every business of an app, so only the account's owners and admins handle them. */
-  const accountAdmin = async (c: { var: Env['Variables'] }) => {
+  const accountAdmin = async (c: { var: Env['Variables'] }, what = 'manage apps and keys') => {
     const [row] = await db
       .select({ role: members.role })
       .from(members)
       .where(and(eq(members.organizationId, c.var.accountId), eq(members.userId, c.var.viewer.id)));
-    if (!row || !['owner', 'admin'].includes(row.role)) throw new PlatformError('forbidden', 'Only the account’s owners and admins can manage apps and keys.', 403);
+    if (!row || !['owner', 'admin'].includes(row.role)) throw new PlatformError('forbidden', `Only the account’s owners and admins can ${what}.`, 403);
+  };
+  /** Money and sending reputation: owners and admins only, and never from inside a host app (D116). */
+  const ownerOnly = async (c: { var: Env['Variables'] }, what: string) => {
+    if (c.var.studio) throw new PlatformError('forbidden', 'The studio cannot change account settings.', 403);
+    await accountAdmin(c, what);
   };
 
   r.get('/accounts/current/apps', async (c) => c.json(await engine.listApps(c.var.accountId)));
@@ -326,13 +349,15 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.delete('/tenants/:id/domains/:domainId', async (c) => {
     const tenant = await tenantOf(c);
+    await ownerOnly(c, 'remove a sending domain');
     await engine.removeDomain(tenant.id, c.req.param('domainId'));
     return c.body(null, 204);
   });
 
-  /** Sending again after the reputation guard paused a business. Account members only. */
+  /** Sending again after the reputation guard paused a business. Owners and admins only. */
   r.post('/tenants/:id/resume', async (c) => {
     const tenant = await tenantOf(c);
+    await ownerOnly(c, 'resume sending');
     return c.json(dashboardTenant(await engine.resumeTenant(tenant.id)));
   });
 
@@ -397,7 +422,19 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.post('/tenants/:id/campaigns/:campaignId/test', async (c) => {
     const tenant = await tenantOf(c);
-    const to = String((await json(c)).to ?? c.var.viewer.email ?? '');
+    const to = String((await json(c)).to ?? c.var.viewer.email ?? '').trim().toLowerCase();
+    // Tests go only to the person sending them or someone on their team, so the button cannot be
+    // used to email strangers (D111).
+    if (to !== c.var.viewer.email?.toLowerCase()) {
+      const team = c.var.studio
+        ? []
+        : await db
+            .select({ email: users.email })
+            .from(members)
+            .innerJoin(users, eq(users.id, members.userId))
+            .where(and(eq(members.organizationId, c.var.accountId), sql`lower(${users.email}) = ${to}`));
+      if (!team.length) throw new PlatformError('forbidden', 'Test emails go to you or someone on your team. Invite them first to send them one.', 403);
+    }
     const message = await engine.sendTest(tenant.id, c.req.param('campaignId'), to);
     return c.json({ to: message.to }, 202);
   });
@@ -523,6 +560,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
   /** Pick a plan. Returns where to pay (Stripe Checkout or its portal), or no url when it is done. */
   r.post('/tenants/:id/billing/plan', async (c) => {
     const tenant = await tenantOf(c);
+    await ownerOnly(c, 'change the plan');
     const plan = String((await json(c)).plan ?? '');
     if (!PLAN_IDS.includes(plan as PlanId)) throw new PlatformError('invalid_request', 'Choose one of the plans.', 422);
     const returnUrl = `${webOrigin}/${tenant.id}/billing`;
@@ -531,6 +569,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
 
   r.post('/tenants/:id/billing/portal', async (c) => {
     const tenant = await tenantOf(c);
+    await ownerOnly(c, 'manage payment');
     return c.json({ url: await engine.billingPortal(tenant.id, `${webOrigin}/${tenant.id}/billing`) });
   });
 

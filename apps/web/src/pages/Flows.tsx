@@ -1,6 +1,6 @@
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { ArrowLeft, CalendarHeart, CalendarPlus, HeartHandshake, PenLine, RotateCcw, Sparkles } from 'lucide-react';
+import { ArrowLeft, CalendarHeart, CalendarPlus, Cake, HeartHandshake, PenLine, RotateCcw, Sparkles, Star } from 'lucide-react';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
   diaryQuery,
@@ -27,6 +27,8 @@ const ICONS: Record<FlowKind, ReactNode> = {
   rebook: <CalendarHeart size={15} />,
   fill_slots: <CalendarPlus size={15} />,
   winback: <HeartHandshake size={15} />,
+  review: <Star size={15} />,
+  birthday: <Cake size={15} />,
 };
 
 /** What a send was for, in words: "after their visit on 4 Oct", "for Thursday's gaps". */
@@ -36,6 +38,8 @@ function reasonText(reason: string) {
   if (kind === 'fill') return `Free times on ${day}`;
   if (kind === 'rebook') return `Due back after ${day}`;
   if (kind === 'winback') return `Last seen ${day}`;
+  if (kind === 'review') return 'Asked for a review';
+  if (kind === 'birthday') return `Birthday, ${date}`;
   return 'After their first visit';
 }
 
@@ -72,6 +76,13 @@ function sinceText(iso: string | null, now = Date.now()) {
   return days < 14 ? `Visited ${days} ${days === 1 ? 'day' : 'days'} ago` : `Last in ${Math.round(days / 7)} weeks ago`;
 }
 
+const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th'}`;
+
+function birthdayText(days: number | null) {
+  if (days === null) return '';
+  return days === 0 ? 'Birthday today' : days === 1 ? 'Birthday tomorrow' : `Birthday in ${days} days`;
+}
+
 /** What starts each flow, in a line, from its settings. */
 function trigger(flow: Flow): { title: string; sub: string } {
   const s = flow.settings;
@@ -87,6 +98,13 @@ function trigger(flow: Flow): { title: string; sub: string } {
       };
     case 'winback':
       return { title: `${s.afterDays} days since their last visit`, sub: 'Longer for clients who usually leave long gaps' };
+    case 'review':
+      return {
+        title: `${s.delayDays} ${s.delayDays === 1 ? 'day' : 'days'} after a visit`,
+        sub: (s.minVisits ?? 1) > 1 ? `Once per client, from their ${ordinal(s.minVisits ?? 1)} visit` : 'Once per client, after any visit',
+      };
+    case 'birthday':
+      return { title: s.daysBefore ? `${s.daysBefore} ${s.daysBefore === 1 ? 'day' : 'days'} before a birthday` : 'On their birthday', sub: 'Once a year, for clients whose birthday you hold' };
   }
 }
 
@@ -369,6 +387,8 @@ function NextSend({ flow }: { flow: FlowDetail }) {
                 : 'Switch it on and they get it within the hour'
               : flow.kind === 'fill_slots'
                 ? 'It sends when a day in its window has enough gaps'
+                : flow.kind === 'birthday'
+                  ? 'It sends when a client’s birthday comes into range'
                 : 'It sends as soon as someone is due'}
         </span>
       </div>
@@ -395,7 +415,11 @@ function NextSend({ flow }: { flow: FlowDetail }) {
                 </span>
                 <span className="min-w-0 flex-1 truncate">{nameOf(p)}</span>
                 <span className={cx('shrink-0 text-xs', p.dueAt && new Date(p.dueAt).getTime() < Date.now() ? 'text-accent-ink' : 'text-muted')}>
-                  {flow.kind === 'welcome' || flow.kind === 'winback' ? sinceText(p.lastVisit) : dueText(p.dueAt)}
+                  {flow.kind === 'birthday'
+                    ? birthdayText(p.birthdayIn)
+                    : flow.kind === 'welcome' || flow.kind === 'winback' || flow.kind === 'review'
+                      ? sinceText(p.lastVisit)
+                      : dueText(p.dueAt)}
                 </span>
               </li>
             ))}

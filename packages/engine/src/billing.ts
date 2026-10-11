@@ -239,7 +239,7 @@ export type Allowance = {
 export function createBilling({ db, provider }: { db: Db; provider: PaymentProvider | null }) {
   async function tenantRow(tenantId: string) {
     const [row] = await db
-      .select({ tenant: tenants, direct: apps.direct, subscription: subscriptions })
+      .select({ tenant: tenants, direct: apps.direct, partner: apps.partner, subscription: subscriptions })
       .from(tenants)
       .innerJoin(apps, eq(apps.id, tenants.appId))
       .leftJoin(subscriptions, eq(subscriptions.tenantId, tenants.id))
@@ -249,7 +249,7 @@ export function createBilling({ db, provider }: { db: Db; provider: PaymentProvi
   }
 
   async function allowance(tenantId: string, now = new Date()): Promise<Allowance> {
-    const { direct, subscription } = await tenantRow(tenantId);
+    const { direct, partner, subscription } = await tenantRow(tenantId);
     const paid = subscription && PAID_STATUSES.has(subscription.status);
     const plan = planById(paid ? subscription.plan : 'free');
     // Paid plans count from the day the billing month started; everyone else by calendar month.
@@ -269,7 +269,7 @@ export function createBilling({ db, provider }: { db: Db; provider: PaymentProvi
         .from(messages)
         .where(and(eq(messages.tenantId, tenantId), eq(messages.stream, 'marketing'), gte(messages.createdAt, periodStart))),
     ]);
-    const billed = direct ? 'business' : 'app';
+    const billed = partner && !direct ? 'app' : 'business';
     return {
       billed,
       plan,
@@ -311,7 +311,7 @@ export function createBilling({ db, provider }: { db: Db; provider: PaymentProvi
   }
 
   function requireDirect(row: Awaited<ReturnType<typeof tenantRow>>) {
-    if (!row.direct) throw new PlatformError('not_billed_here', `${row.tenant.name} is paid for through the app it belongs to.`, 409);
+    if (row.partner && !row.direct) throw new PlatformError('not_billed_here', `${row.tenant.name} is paid for through the app it belongs to.`, 409);
   }
 
   /** Starts paying for a plan. Returns where to send the person, or null when it is already done. */

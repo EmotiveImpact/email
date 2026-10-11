@@ -1,6 +1,7 @@
 import { and, eq, messages, sql, tenants, type Db } from '@platform/db';
 import {
   isSnsUrl,
+  LIMITS,
   PlatformError,
   verifySnsMessage,
   WEBHOOK_EVENTS,
@@ -9,11 +10,25 @@ import {
   type WebhookEvent,
 } from '@platform/engine';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
 import type { Auth } from './auth.ts';
 import { dashboardRoutes, publicMessage } from './dashboard.ts';
 
 type App = Awaited<ReturnType<Engine['authenticate']>>;
+
+const tooLarge = (): never => {
+  throw new PlatformError('too_large', 'That request is too large.', 413);
+};
+
+/**
+ * The caller's IP address. Behind the load balancer it is the last address in X-Forwarded-For,
+ * the one the balancer added; earlier entries come from the client and cannot be trusted.
+ */
+export function clientIp(headers: Headers) {
+  const forwarded = headers.get('x-forwarded-for');
+  return forwarded?.split(',').pop()?.trim() || 'direct';
+}
 type Env = { Variables: { app: App } };
 
 export type ApiOptions = {
@@ -46,6 +61,7 @@ export function createApi(options: ApiOptions) {
 
   api.onError((error, c) => {
     if (error instanceof PlatformError) {
+      if (error.details.retryAfter) c.header('Retry-After', String(error.details.retryAfter));
       return c.json({ error: { code: error.code, message: error.message } }, error.status as 400);
     }
     if (error instanceof HTTPException) return error.getResponse();
@@ -78,12 +94,18 @@ export function createApi(options: ApiOptions) {
   v1.use(async (c, next) => {
     const header = c.req.header('authorization');
     const key = header?.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
-    c.set('app', await engine.authenticate(key));
+    const app = await engine.authenticate(key);
+    await engine.hitLimit(`app:${app.id}`, LIMITS.apiKey);
+    c.set('app', app);
     await next();
   });
+  // Emails can carry a large HTML body; nothing else needs more than a megabyte.
+  v1.use(async (c, next) => bodyLimit({ maxSize: c.req.path.endsWith('/emails') ? 6 * 1024 * 1024 : 1024 * 1024, onError: tooLarge })(c, next));
 
   v1.put('/tenants/:externalId', async (c) => {
-    const tenant = await engine.upsertTenant(c.var.app.id, c.req.param('externalId'), (await body(c)) as never);
+    // The SES tenant is ours to assign, one per business, so apps cannot share or dodge a reputation.
+    const { sesTenant: _ignored, ...input } = (await body(c)) as Record<string, unknown>;
+    const tenant = await engine.upsertTenant(c.var.app.id, c.req.param('externalId'), input as never);
     return c.json(publicTenant(tenant));
   });
 
@@ -151,6 +173,11 @@ export function createApi(options: ApiOptions) {
     const events = (input.events ?? []).filter((e): e is WebhookEvent => (WEBHOOK_EVENTS as readonly string[]).includes(e));
     const endpoint = await engine.addWebhookEndpoint(c.var.app.id, String(input.url ?? ''), events);
     return c.json({ id: endpoint.id, secret: endpoint.secret, events }, 201);
+  });
+  v1.get('/webhooks', async (c) => c.json(await engine.listWebhookEndpoints(c.var.app.id)));
+  v1.delete('/webhooks/:id', async (c) => {
+    await engine.removeWebhookEndpoint(c.var.app.id, c.req.param('id'));
+    return c.body(null, 204);
   });
 
   // Sending domains. A business sends from the platform address until its own domain is verified.
@@ -254,6 +281,13 @@ export function createApi(options: ApiOptions) {
 
   // ------------------------------------------------------------------ sign-in and the web app
 
+  // Sign-in, sign-up and password resets, limited per IP address so they cannot be scripted.
+  api.post('/auth/*', async (c, next) => {
+    const path = c.req.path;
+    const limit = path.includes('/sign-up') ? LIMITS.signUp : path.includes('/sign-in') ? LIMITS.signIn : /password/.test(path) ? LIMITS.reset : null;
+    if (limit) await engine.hitLimit(`ip:${limit === LIMITS.signUp ? 'up' : limit === LIMITS.signIn ? 'in' : 'reset'}:${clientIp(c.req.raw.headers)}`, limit);
+    await next();
+  });
   api.on(['GET', 'POST'], '/auth/*', (c) => options.auth.handler(c.req.raw));
   api.route('/app', dashboardRoutes({ engine, db, auth: options.auth, webOrigin: options.webOrigin }));
   return api;

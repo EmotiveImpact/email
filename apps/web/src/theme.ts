@@ -12,6 +12,8 @@ export type Brand = {
   address?: string;
   /** The online booking page that flows and booking buttons link to. */
   bookingUrl?: string;
+  /** Where happy clients leave a review; the review flow links here. */
+  reviewUrl?: string;
 };
 
 type Shades = { name: string; accent: string; light: string; deep: string; ink: string; tint: string };
@@ -31,7 +33,7 @@ export const FONTS = {
   serif: { label: 'Serif', display: "'Newsreader Variable', Georgia, serif", weight: '400', track: '-0.01em' },
 } as const;
 
-export const DEFAULT_BRAND: Required<Omit<Brand, 'logoUrl' | 'address' | 'bookingUrl'>> = { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans' };
+export const DEFAULT_BRAND: Required<Omit<Brand, 'logoUrl' | 'address' | 'bookingUrl' | 'reviewUrl'>> = { accent: '#D9481F', rail: 'pigment', headingFont: 'cal-sans' };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
