@@ -23,7 +23,17 @@ export const SHOW = {
 } as const satisfies Record<string, readonly (typeof messages.$inferSelect)['status'][]>;
 
 export function dashboardTenant(t: typeof tenants.$inferSelect, appName?: string) {
-  return { id: t.id, externalId: t.externalId, app: appName ?? null, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, brand: t.brand };
+  return {
+    id: t.id,
+    externalId: t.externalId,
+    app: appName ?? null,
+    name: t.name,
+    fromEmail: t.fromEmail,
+    replyTo: t.replyTo,
+    status: t.status,
+    pausedReason: t.pausedReason,
+    brand: t.brand,
+  };
 }
 
 export function publicMessage(m: typeof messages.$inferSelect) {
@@ -61,7 +71,7 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     if (header?.startsWith('Studio ')) {
       const studio = await engine.studioViewer(header.slice(7).trim());
       if (!studio) throw new PlatformError('studio_expired', 'This studio session has ended. Open it again from your app.', 401);
-      const account = c.req.path.match(/\/app\/(accounts|studio)/) || (c.req.path.endsWith('/tenants') && c.req.method !== 'GET') || c.req.path.endsWith('/brand');
+      const account = c.req.path.match(/\/app\/(accounts|studio)/) || (c.req.path.endsWith('/tenants') && c.req.method !== 'GET') || c.req.path.endsWith('/brand') || c.req.path.endsWith('/resume');
       if (account) throw new PlatformError('forbidden', 'The studio cannot change account settings.', 403);
       c.set('studio', studio);
       c.set('viewer', studio.user);
@@ -234,6 +244,48 @@ export function dashboardRoutes({ engine, db, auth, webOrigin }: { engine: Engin
     const tenant = await tenantOf(c);
     await engine.deleteSegment(tenant.id, c.req.param('segmentId'));
     return c.body(null, 204);
+  });
+
+  // ---------------------------------------------------------------- sending domain and reputation
+
+  r.get('/tenants/:id/sending', async (c) => {
+    const tenant = await tenantOf(c);
+    const [domains, reputation, sender] = await Promise.all([engine.listDomains(tenant.id), engine.reputation(tenant.id), engine.senderFor(tenant)]);
+    return c.json({ domains, reputation, sender: { from: sender.from, replyTo: sender.replyTo, own: sender.own } });
+  });
+
+  r.post('/tenants/:id/domains', async (c) => {
+    const tenant = await tenantOf(c);
+    const body = await json(c);
+    const domain = await engine.addDomain(tenant.id, body.domain);
+    // Send from hello@ the new domain unless the business already chose an address there.
+    const local = typeof body.localPart === 'string' && /^[a-z0-9._+-]{1,64}$/i.test(body.localPart) ? body.localPart.toLowerCase() : 'hello';
+    if (!tenant.fromEmail?.endsWith(`@${domain.domain}`)) {
+      await engine.upsertTenant(tenant.appId, tenant.externalId, {
+        name: tenant.name,
+        fromEmail: `${local}@${domain.domain}`,
+        replyTo: tenant.replyTo ?? tenant.fromEmail ?? undefined,
+        brand: tenant.brand,
+      });
+    }
+    return c.json(domain, 201);
+  });
+
+  r.post('/tenants/:id/domains/:domainId/check', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(await engine.checkTenantDomain(tenant.id, c.req.param('domainId')));
+  });
+
+  r.delete('/tenants/:id/domains/:domainId', async (c) => {
+    const tenant = await tenantOf(c);
+    await engine.removeDomain(tenant.id, c.req.param('domainId'));
+    return c.body(null, 204);
+  });
+
+  /** Sending again after the reputation guard paused a business. Account members only. */
+  r.post('/tenants/:id/resume', async (c) => {
+    const tenant = await tenantOf(c);
+    return c.json(dashboardTenant(await engine.resumeTenant(tenant.id)));
   });
 
   // ---------------------------------------------------------------- campaigns

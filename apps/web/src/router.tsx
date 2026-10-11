@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type ErrorComponentProps } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
-import { activityQuery, ApiError, campaignQuery, campaignsQuery, meQuery, messagesQuery, segmentsQuery, tenantsQuery } from './api.ts';
+import { activityQuery, ApiError, campaignQuery, campaignsQuery, meQuery, messagesQuery, segmentsQuery, sendingQuery, tenantsQuery } from './api.ts';
 import { readLastTenant, Shell } from './components/Shell.tsx';
 import { Button } from './components/ui.tsx';
 import { Appearance } from './pages/Appearance.tsx';
@@ -9,6 +9,7 @@ import { Audience, type AudienceSearch } from './pages/Audience.tsx';
 import { CampaignPage } from './pages/CampaignEditor.tsx';
 import { Campaigns } from './pages/Campaigns.tsx';
 import { Developers } from './pages/Developers.tsx';
+import { Domain } from './pages/Domain.tsx';
 import { Embed } from './pages/Embed.tsx';
 import { Home } from './pages/Home.tsx';
 import { SegmentBuilder } from './pages/SegmentBuilder.tsx';
@@ -111,6 +112,12 @@ const audience = createRoute({
 });
 const segment = createRoute({ getParentRoute: () => tenant, path: 'audience/segments/$segment', component: SegmentBuilder });
 const developers = createRoute({ getParentRoute: () => tenant, path: 'developers', component: Developers });
+const domain = createRoute({
+  getParentRoute: () => tenant,
+  path: 'settings/domain',
+  loader: ({ context, params }) => context.queryClient.ensureQueryData(sendingQuery(params.tenant)),
+  component: Domain,
+});
 const appearance = createRoute({ getParentRoute: () => tenant, path: 'settings/appearance', component: Appearance });
 
 const routeTree = root.addChildren([
@@ -118,7 +125,7 @@ const routeTree = root.addChildren([
   signIn,
   embed,
   setup,
-  tenant.addChildren([home, sending, campaigns, campaign, flows, audience, segment, developers, appearance]),
+  tenant.addChildren([home, sending, campaigns, campaign, flows, audience, segment, domain, developers, appearance]),
 ]);
 
 export function makeRouter(queryClient: QueryClient) {

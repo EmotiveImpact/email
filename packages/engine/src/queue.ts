@@ -4,9 +4,10 @@ export type Jobs = {
   'send-message': { messageId: string };
   'deliver-webhook': { deliveryId: string };
   'send-campaign': { campaignId: string };
+  'check-domain': { domainId: string };
 };
 export type JobName = keyof Jobs;
-export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign'];
+export const JOB_NAMES: JobName[] = ['send-message', 'deliver-webhook', 'send-campaign', 'check-domain'];
 
 export type EnqueueOptions = {
   /** Do not run before this time. Used to pace campaign sends and to schedule campaigns. */
@@ -31,11 +32,16 @@ export class MemoryQueue implements Queue {
     for (const job of jobs) this.jobs.push({ name, data: job.data, startAfter: job.startAfter });
   }
 
-  /** Runs queued jobs (including ones queued while running) until none are left. */
-  async drain(run: (name: JobName, data: Jobs[JobName]) => Promise<void>) {
-    while (this.jobs.length) {
-      const job = this.jobs.shift()!;
-      await run(job.name, job.data);
+  /**
+   * Runs queued jobs (including ones queued while running) that are due within `horizonMs`, until
+   * none are left. Later jobs (a campaign scheduled for tomorrow, a DNS re-check) stay queued.
+   */
+  async drain(run: (name: JobName, data: Jobs[JobName]) => Promise<void>, horizonMs = 30_000) {
+    for (;;) {
+      const due = this.jobs.findIndex((j) => !j.startAfter || j.startAfter.getTime() <= Date.now() + horizonMs);
+      if (due === -1) return;
+      const [job] = this.jobs.splice(due, 1);
+      await run(job!.name, job!.data);
     }
   }
 }

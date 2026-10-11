@@ -120,6 +120,28 @@ export function createApi(options: ApiOptions) {
     return c.json({ id: endpoint.id, secret: endpoint.secret, events }, 201);
   });
 
+  // Sending domains. A business sends from the platform address until its own domain is verified.
+  v1.get('/tenants/:externalId/domains', async (c) => {
+    const tenant = await engine.getTenant(c.var.app.id, c.req.param('externalId'));
+    return c.json(await engine.listDomains(tenant.id));
+  });
+
+  v1.post('/tenants/:externalId/domains', async (c) => {
+    const tenant = await engine.getTenant(c.var.app.id, c.req.param('externalId'));
+    return c.json(await engine.addDomain(tenant.id, ((await body(c)) as { domain?: unknown }).domain), 201);
+  });
+
+  v1.post('/tenants/:externalId/domains/:domainId/check', async (c) => {
+    const tenant = await engine.getTenant(c.var.app.id, c.req.param('externalId'));
+    return c.json(await engine.checkTenantDomain(tenant.id, c.req.param('domainId')));
+  });
+
+  v1.delete('/tenants/:externalId/domains/:domainId', async (c) => {
+    const tenant = await engine.getTenant(c.var.app.id, c.req.param('externalId'));
+    await engine.removeDomain(tenant.id, c.req.param('domainId'));
+    return c.body(null, 204);
+  });
+
   /** Which web origins may show the embedded studio. Replaces the list. */
   v1.put('/studio/origins', async (c) => c.json({ origins: await engine.setEmbedOrigins(c.var.app.id, await body(c)) }));
 
@@ -185,6 +207,6 @@ export function createApi(options: ApiOptions) {
 }
 
 function publicTenant(t: typeof tenants.$inferSelect) {
-  return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, brand: t.brand };
+  return { id: t.externalId, name: t.name, fromEmail: t.fromEmail, replyTo: t.replyTo, status: t.status, pausedReason: t.pausedReason, brand: t.brand };
 }
 export { createAuth } from './auth.ts';

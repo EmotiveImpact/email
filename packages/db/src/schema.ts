@@ -157,6 +157,9 @@ export const tenants = pgTable(
     /** Name of the matching SES tenant, once created. */
     sesTenant: text('ses_tenant'),
     status: text('status', { enum: ['active', 'paused'] }).notNull().default('active'),
+    /** Why sending was paused, in words the business can act on. */
+    pausedReason: text('paused_reason'),
+    pausedAt: timestamp('paused_at', { withTimezone: true }),
     brand: jsonb('brand').$type<Brand>().notNull().default({}),
     createdAt: created(),
   },
@@ -423,3 +426,27 @@ export const studioSessions = pgTable(
     createdAt: created(),
   },
 );
+
+export const DOMAIN_STATUSES = ['pending', 'verified', 'failed'] as const;
+export type DomainStatus = (typeof DOMAIN_STATUSES)[number];
+export type DnsRecord = { type: 'CNAME' | 'TXT' | 'MX'; name: string; value: string };
+
+/**
+ * A domain a business sends from. SES signs its mail with DKIM once the CNAME records are in the
+ * domain's DNS. A domain belongs to one business, since SES identities are account-wide.
+ */
+export const domains = pgTable('domains', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id')
+    .notNull()
+    .references(() => tenants.id),
+  domain: text('domain').notNull().unique(),
+  status: text('status', { enum: DOMAIN_STATUSES }).notNull().default('pending'),
+  /** The DKIM records to add, as SES gave them. */
+  records: jsonb('records').$type<DnsRecord[]>().notNull().default([]),
+  /** Whether a DMARC record was found at the last check (Gmail and Yahoo expect one for bulk mail). */
+  dmarc: boolean('dmarc').notNull().default(false),
+  checkedAt: timestamp('checked_at', { withTimezone: true }),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  createdAt: created(),
+});
